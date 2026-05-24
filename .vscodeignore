@@ -1,0 +1,27 @@
+# Source / dev files
+src/
+*.ts
+!out/extension.js
+!out/extension.js.map
+tsconfig.json
+esbuild.mjs
+*.vsix
+.vscode-test/
+.gitignore
+.git/
+.vscode/
+
+# Dev-only files
+docs/
+setup.sh
+setup-repo.sh
+CONTRIBUTING.md
+
+# Exclude ALL node_modules except the native runtime bindings
+# (JS code is bundled by esbuild into out/extension.js)
+node_modules/**
+!node_modules/better-sqlite3/**
+!node_modules/bindings/**
+!node_modules/file-uri-to-path/**
+!node_modules/onnxruntime-node/**
+!node_modules/onnxruntime-common/**

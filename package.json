@@ -1,0 +1,312 @@
+{
+  "name": "recall",
+  "displayName": "Recall — Persistent Developer Memory",
+  "description": "Persistent, searchable developer memory that Copilot uses autonomously. Hybrid keyword + semantic search, automatic file indexing (30+ languages), passive event capture, deduplication, import/export, and a bundled offline AI model — all 100% local and private.",
+  "version": "1.1.0",
+  "publisher": "recall-dev",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/recall-dev/recall.git"
+  },
+  "homepage": "https://github.com/recall-dev/recall#readme",
+  "bugs": {
+    "url": "https://github.com/recall-dev/recall/issues"
+  },
+  "keywords": [
+    "copilot",
+    "memory",
+    "ai",
+    "semantic-search",
+    "sqlite",
+    "developer-tools",
+    "file-index",
+    "embeddings"
+  ],
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    }
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "recall.participant",
+        "fullName": "Recall Memory",
+        "name": "recall",
+        "description": "Search, save, and manage persistent developer memory",
+        "isSticky": false
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "recall_search",
+        "toolReferenceName": "recall_search",
+        "displayName": "Recall: Search Memory",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Search persistent developer memory for observations, bug fixes, and insights",
+        "modelDescription": "Search the developer's persistent memory for recorded bug fixes, architectural insights, and prior investigations. Use when: the user reports a bug, error, or unexpected behavior; you are about to modify or refactor a function; you need to understand how a module or API works; you are planning a feature that touches existing code. Example: {\"query\": \"getAccessToken refresh race condition\", \"tags\": \"auth,bugfix\"}. Returns: a ranked list of observations, each with id, trust status (✓verified = confirmed fact, ⏳pending = unverified), age, source, project label, tags, and the full observation text. Current-project results appear first; cross-project results appear after, labeled [from: ProjectName]. Do NOT use this for looking up file structure or symbol names — use recall_file_index for that. Do NOT skip this before editing code; a prior fix may already exist.",
+        "icon": "$(search)",
+        "tags": [
+          "memory",
+          "recall"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "2-6 keywords: function name + module + symptom or concept. Example: 'getAccessToken refresh race condition'. Do not pass the full user message as the query."
+            },
+            "tags": {
+              "type": "string",
+              "description": "Comma-separated tags to filter results. Example: 'auth,bugfix'. Omit to search all tags."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Max results to return. Default: 10. Increase to 20 for broad investigations."
+            },
+            "project": {
+              "type": "string",
+              "description": "Override auto-detected project name. Omit to use the current workspace folder name."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      },
+      {
+        "name": "recall_save",
+        "toolReferenceName": "recall_save",
+        "displayName": "Recall: Save Observation",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Save a new observation to persistent developer memory",
+        "modelDescription": "Save a new observation to the developer's persistent memory so it can be recalled in future sessions. Use when: you identified a bug root cause and what fixed it; you discovered a non-obvious API contract, side effect, or ordering constraint; you mapped a cross-file data flow or dependency; you resolved an investigation that required reading more than one file; you confirmed or disproved a hypothesis about system behavior. Example: {\"content\": \"Race condition in authService.ts getAccessToken() L142: concurrent calls all reach the expired check before any refresh completes. Fix: added mutex around the refresh block.\", \"tags\": \"auth,bugfix,concurrency\"}. Returns: confirmation with the new observation ID. Saved as 'pending' until the engineer verifies. Do NOT save trivial facts the file index already captures (function names, line numbers). Do NOT save build pass/fail results or git commits — passive capture handles those automatically. Do NOT save unconfirmed guesses — search first to see if it already exists.",
+        "icon": "$(save)",
+        "tags": [
+          "memory",
+          "recall"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string",
+              "description": "The observation text. Be specific: include file name, function name, line number, and the 'why'. Example: 'Race condition in authService.ts getAccessToken() L142: concurrent calls all pass the expiry check before any refresh completes. Fix: added mutex around refresh block.'"
+            },
+            "tags": {
+              "type": "string",
+              "description": "Comma-separated tags: module name + category. Example: 'auth,bugfix,concurrency'. Categories: bugfix, architecture, gotcha, dataflow, performance, config."
+            }
+          },
+          "required": [
+            "content"
+          ]
+        }
+      },
+      {
+        "name": "recall_file_index",
+        "toolReferenceName": "recall_file_index",
+        "displayName": "Recall: File Index Lookup",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Look up cached file structure — function names, line numbers, descriptions",
+        "modelDescription": "Look up the cached structural summary of a source file before reading it. Use when: you are about to call read_file on any source file; you need to find which line a specific function starts on; you want to know what functions/classes a file contains without reading it; you know a symbol name but not which file it is in (use symbolQuery). Example: {\"query\": \"authService.ts\"} or {\"query\": \"src/\", \"symbolQuery\": \"getAccessToken\"}. Returns: one-sentence file description, list of all function/class/struct symbols with exact line numbers and brief descriptions, total line count. Use the returned line numbers to read only the specific function you need instead of the whole file — this saves 1,000-8,000 tokens per file. If the file is not indexed, the result will be empty; read the file normally and it will be indexed on next save. Do NOT use this for searching bug fixes or prior knowledge — use recall_search for that.",
+        "icon": "$(symbol-function)",
+        "tags": [
+          "memory",
+          "recall"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "File path or filename. Can be absolute, workspace-relative, or just the filename. Example: 'authService.ts' or 'src/services/authService.ts'."
+            },
+            "symbolQuery": {
+              "type": "string",
+              "description": "Search for a function/class/symbol name across all indexed files. Use when you know the symbol name but not which file contains it. Example: 'getAccessToken'."
+            }
+          },
+          "required": [
+            "query"
+          ]
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "recall.quickSave",
+        "title": "Recall: Quick Save Observation",
+        "icon": "$(save)"
+      },
+      {
+        "command": "recall.showPending",
+        "title": "Recall: Show Pending Observations"
+      },
+      {
+        "command": "recall.reindexFile",
+        "title": "Recall: Re-index Current File"
+      },
+      {
+        "command": "recall.reindexWorkspace",
+        "title": "Recall: Re-index All Open Workspace Files"
+      },
+      {
+        "command": "recall.stats",
+        "title": "Recall: Show Database Statistics"
+      },
+      {
+        "command": "recall.exportMemory",
+        "title": "Recall: Export Memory to JSON"
+      },
+      {
+        "command": "recall.openDashboard",
+        "title": "Recall: Open Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "recall.setupRepository",
+        "title": "Recall: Setup Repository (Add Copilot Guidance Files)"
+      },
+      {
+        "command": "recall.diagnostics",
+        "title": "Recall: Run Diagnostics (Debug Tool Registration)"
+      },
+      {
+        "command": "recall.reindexEmbeddings",
+        "title": "Recall: Reindex Semantic Embeddings"
+      },
+      {
+        "command": "recall.deduplicateMemory",
+        "title": "Recall: Deduplicate Memory (Find & Merge Similar Observations)"
+      },
+      {
+        "command": "recall.importMemory",
+        "title": "Recall: Import Memory from JSON"
+      },
+      {
+        "command": "recall.showContextHints",
+        "title": "Recall: Show Observations for Current File"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "recall-sidebar",
+          "title": "Recall",
+          "icon": "media/brain.svg"
+        }
+      ]
+    },
+    "views": {
+      "recall-sidebar": [
+        {
+          "type": "webview",
+          "id": "recall.dashboardView",
+          "name": "Dashboard"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "recall.quickSave",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m"
+      }
+    ],
+    "configuration": {
+      "title": "Recall",
+      "properties": {
+        "recall.databasePath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path for the Recall database. Leave empty to use the default (~/.recall/recall.db)."
+        },
+        "recall.autoIndexOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically index file symbols when a file is saved."
+        },
+        "recall.captureBuilds": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically capture build task results."
+        },
+        "recall.captureGitCommits": {
+          "type": "boolean",
+          "default": false,
+          "description": "Automatically capture git commit information."
+        },
+        "recall.captureDebugSessions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically capture debug session information."
+        },
+        "recall.pendingExpirationDays": {
+          "type": "number",
+          "default": 7,
+          "description": "Number of days before unverified pending observations are automatically expired."
+        },
+        "recall.idlePromptMinutes": {
+          "type": "number",
+          "default": 10,
+          "description": "Minutes of inactivity before prompting to save session notes. Set to 0 to disable."
+        },
+        "recall.maxSearchResults": {
+          "type": "number",
+          "default": 10,
+          "description": "Maximum number of search results returned by recall_search."
+        },
+        "recall.projectName": {
+          "type": "string",
+          "default": "",
+          "description": "Project name for tagging observations. Defaults to the workspace folder name if empty."
+        },
+        "recall.indexFileExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional file extensions to index (e.g. [\".vue\", \".svelte\"]). Common languages are indexed by default."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "compile": "tsc -p ./",
+    "bundle": "node esbuild.mjs",
+    "watch": "tsc -watch -p ./",
+    "watch:esbuild": "node esbuild.mjs --watch",
+    "lint": "eslint src --ext ts",
+    "package": "npx @vscode/vsce package",
+    "install-ext": "code --install-extension recall-1.1.0.vsix --force"
+  },
+  "dependencies": {
+    "@xenova/transformers": "^2.17.2",
+    "better-sqlite3": "^12.10.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.95.0",
+    "@vscode/vsce": "^3.2.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.5.0"
+  }
+}
