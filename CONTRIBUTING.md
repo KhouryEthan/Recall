@@ -42,8 +42,21 @@ Thank you for your interest in contributing to Recall! This document explains ho
 
 ```bash
 npm run bundle        # Bundle with esbuild
-npm run package       # Create .vsix file
+npm run package       # Create .vsix for the current platform
 ```
+
+### Cross-platform VSIX packaging
+
+Native modules (`better-sqlite3`, `onnxruntime-node`) ship platform-specific binaries. When publishing for multiple OS/arch combinations, build one VSIX per target:
+
+```bash
+npm run package:win32-x64
+npm run package:linux-x64
+npm run package:darwin-arm64
+# ... see package.json for all targets
+```
+
+Each command runs `vsce package --target <platform>`, which installs the correct native binaries for that target before packaging. GitHub Actions (`.github/workflows/package.yml`) builds all targets on release.
 
 ## Code Style
 
