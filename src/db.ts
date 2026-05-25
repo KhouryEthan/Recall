@@ -31,6 +31,51 @@ export interface SymbolInfo {
     brief: string;
 }
 
+// Embedding BLOB layout (current = v1):
+//   [0]      uint8  version   (must equal EMBEDDING_BLOB_VERSION)
+//   [1..]    float32 little-endian, EMBEDDING_DIM lanes
+// Legacy BLOBs from versions <1.2.0 have no version byte and are exactly
+// EMBEDDING_DIM*4 bytes long; decoder accepts both layouts.
+const EMBEDDING_BLOB_VERSION = 1;
+const EMBEDDING_DIM = 384;
+const EMBEDDING_BYTES = EMBEDDING_DIM * 4;
+
+function encodeEmbedding(embedding: Float32Array): Buffer {
+    if (embedding.length !== EMBEDDING_DIM) {
+        throw new Error(
+            `Recall: refusing to store embedding of dimension ${embedding.length}; expected ${EMBEDDING_DIM}.`
+        );
+    }
+    const out = Buffer.alloc(1 + EMBEDDING_BYTES);
+    out.writeUInt8(EMBEDDING_BLOB_VERSION, 0);
+    Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength).copy(out, 1);
+    return out;
+}
+
+function decodeEmbedding(buf: Buffer | null | undefined): Float32Array | null {
+    if (!buf || buf.length === 0) { return null; }
+
+    let dataStart: number;
+    if (buf.length === EMBEDDING_BYTES) {
+        // Legacy (pre-1.2.0): no version byte, raw float32 array
+        dataStart = 0;
+    } else if (buf.length === 1 + EMBEDDING_BYTES && buf.readUInt8(0) === EMBEDDING_BLOB_VERSION) {
+        dataStart = 1;
+    } else {
+        // Unknown version or mismatched dim — treat as missing so the caller
+        // can re-embed instead of returning garbage vectors.
+        return null;
+    }
+
+    // Float32Array requires a 4-byte aligned byteOffset, which the version
+    // byte breaks. Read scalar-by-scalar to stay safe regardless of alignment.
+    const out = new Float32Array(EMBEDDING_DIM);
+    for (let i = 0; i < EMBEDDING_DIM; i++) {
+        out[i] = buf.readFloatLE(dataStart + i * 4);
+    }
+    return out;
+}
+
 export class RecallDatabase {
     private db: Database.Database;
     private dbPath: string;
@@ -253,14 +298,29 @@ export class RecallDatabase {
     }
 
     private sanitizeFtsQuery(query: string): string {
-        // Remove FTS5 special characters, then join words with implicit AND
-        const cleaned = query
-            .replace(/['"(){}[\]*:^~!@#$%&\\|<>]/g, ' ')
+        // FTS5 syntax: preserve user-supplied "exact phrase" quoting, but emit
+        // single tokens unquoted with a trailing `*` so that searches like
+        // "function" still match "functions" / "functional" via prefix lookup.
+        // (Quoting a single token disables prefix matching and any tokenizer
+        // normalization, which made FTS behave like a strict-literal search.)
+        const phrases: string[] = [];
+        const remainder = query.replace(/"([^"]+)"/g, (_full, phrase: string) => {
+            const safe = phrase.replace(/[(){}[\]*:^~!@#$%&\\|<>'`"]/g, ' ').trim();
+            if (safe.length > 0) {
+                phrases.push(`"${safe}"`);
+            }
+            return ' ';
+        });
+
+        const tokens = remainder
+            .replace(/[(){}[\]*:^~!@#$%&\\|<>'`"]/g, ' ')
             .split(/\s+/)
             .filter(w => w.length > 0)
-            .map(w => `"${w}"`) // Quote each word for exact matching
-            .join(' ');
-        return cleaned;
+            // Words >=3 chars get a prefix wildcard for stemming-like behavior.
+            // Shorter words are emitted as-is to avoid noisy prefix matches.
+            .map(w => (w.length >= 3 ? `${w}*` : w));
+
+        return [...phrases, ...tokens].join(' ');
     }
 
     getRecentObservations(limit: number = 20, days?: number): Observation[] {
@@ -312,25 +372,27 @@ export class RecallDatabase {
     // ─── Embedding Operations ────────────────────────────────────────────
 
     storeEmbedding(id: number, embedding: Float32Array): void {
-        const buffer = Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength);
+        const buffer = encodeEmbedding(embedding);
         this.db.prepare(`UPDATE observations SET embedding = ? WHERE id = ?`).run(buffer, id);
     }
 
     getEmbedding(id: number): Float32Array | null {
         const row = this.db.prepare(`SELECT embedding FROM observations WHERE id = ?`).get(id) as { embedding: Buffer | null } | undefined;
-        if (!row?.embedding) { return null; }
-        return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
+        return decodeEmbedding(row?.embedding ?? null);
     }
 
-    getAllWithEmbeddings(): Array<{ id: number; content: string; tags: string; source: string; status: string; created_at: string; embedding: Float32Array }> {
+    getAllWithEmbeddings(): Array<{ id: number; content: string; tags: string; project: string; source: string; status: string; created_at: string; embedding: Float32Array }> {
         const rows = this.db.prepare(
-            `SELECT id, content, tags, source, status, created_at, embedding FROM observations WHERE embedding IS NOT NULL AND status != 'rejected'`
-        ).all() as Array<{ id: number; content: string; tags: string; source: string; status: string; created_at: string; embedding: Buffer }>;
+            `SELECT id, content, tags, project, source, status, created_at, embedding FROM observations WHERE embedding IS NOT NULL AND status != 'rejected'`
+        ).all() as Array<{ id: number; content: string; tags: string; project: string; source: string; status: string; created_at: string; embedding: Buffer }>;
 
-        return rows.map(r => ({
-            ...r,
-            embedding: new Float32Array(r.embedding.buffer, r.embedding.byteOffset, r.embedding.byteLength / 4),
-        }));
+        const out: Array<{ id: number; content: string; tags: string; project: string; source: string; status: string; created_at: string; embedding: Float32Array }> = [];
+        for (const r of rows) {
+            const decoded = decodeEmbedding(r.embedding);
+            if (!decoded) { continue; } // skip incompatible-version BLOBs
+            out.push({ ...r, embedding: decoded });
+        }
+        return out;
     }
 
     getObservationsWithoutEmbeddings(): Observation[] {

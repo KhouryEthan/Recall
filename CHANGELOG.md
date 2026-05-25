@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0] - 2026-05-25
+
+### Fixed
+- **VSIX shipped without the embedding model loader (CRITICAL)**: `embeddings.ts` loads `@xenova/transformers` via `Function('return import(...)')()`, which esbuild cannot follow. The `.vscodeignore` excluded `node_modules/**` with a small allowlist that did not include `@xenova/transformers` or its `@huggingface/jinja` dependency, so semantic search silently broke when installed from a packaged VSIX (worked in `F5` dev only). Added both packages to the allowlist.
+- **FTS search disabled stemming/prefix matching**: `sanitizeFtsQuery` wrapped every word in double quotes, turning every query into a strict-literal lookup. Searching `function` would not match `functions`, `getToken` would not match `getTokenAsync`, etc. Quotes are now reserved for user-supplied phrases; single tokens are emitted unquoted with a trailing `*` for prefix matching.
+- **Embedding BLOBs had no version/dimension marker**: If the embedding model ever changed dimension, every existing BLOB would silently decode as garbage. Embeddings now carry a 1-byte version header. Legacy (pre-1.2.0) BLOBs are still readable; mismatched-version BLOBs are skipped instead of producing junk vectors, and `Recall: Reindex Semantic Embeddings` will re-populate them.
+
+### Changed
+- **Cross-platform VSIX packaging**: Native modules (`better-sqlite3`, `onnxruntime-node`) ship platform-specific `.node` binaries; a VSIX built on one OS/arch is broken on another. Added per-target package scripts (`package:win32-x64`, `package:linux-arm64`, `package:darwin-arm64`, etc.) and a GitHub Actions workflow (`.github/workflows/package.yml`) that builds and uploads a VSIX for every supported `os/arch` on each `v*` tag.
+- **CONTRIBUTING.md**: Documents the cross-platform packaging workflow.
+
 ## [1.1.0] - 2026-05-21
 
 ### Added
