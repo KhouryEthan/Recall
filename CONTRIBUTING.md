@@ -7,8 +7,8 @@ Thank you for your interest in contributing to Recall! This document explains ho
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/recall-dev/recall.git
-   cd recall
+   git clone https://github.com/KhouryEthan/Recall.git
+   cd Recall
    ```
 
 2. **Install dependencies:**
@@ -25,7 +25,14 @@ Thank you for your interest in contributing to Recall! This document explains ho
    npm run compile
    ```
 
-4. **Launch the Extension Development Host:**
+4. **Run quality checks:**
+
+   ```bash
+   npm run lint
+   npm test
+   ```
+
+5. **Launch the Extension Development Host:**
 
    Open the project in VS Code and press `F5`. This opens a new VS Code window with the extension loaded.
 

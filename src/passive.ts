@@ -144,7 +144,6 @@ export class PassiveCapture {
                     const log = await repo.log({ maxEntries: 1 });
                     if (log && log.length > 0) {
                         const latest = log[0];
-                        const files = latest.parents?.length || 0;
                         const content = `Git commit: "${latest.message?.trim()}" by ${latest.authorName || 'unknown'} (${latest.hash?.substring(0, 7)})`;
                         const gitId = this.db.insertObservation(content, 'git', 'git', 'verified');
                         embedObservation(this.db, gitId, content);

@@ -1,0 +1,32 @@
+{
+  "name": "resume-debugging",
+  "description": "Template scenario for comparing a normal resume-work debugging pass with a Recall-assisted pass. Replace these sample character counts with measured raw tool reads from an actual run before publishing numbers.",
+  "baselineReads": [
+    {
+      "path": "src/auth/authService.ts",
+      "characters": 32000
+    },
+    {
+      "path": "src/auth/sessionStore.ts",
+      "characters": 18000
+    },
+    {
+      "path": "src/api/client.ts",
+      "characters": 22000
+    }
+  ],
+  "recallReads": [
+    {
+      "path": "recall_search:token refresh race condition",
+      "characters": 1800
+    },
+    {
+      "path": "recall_file_index:authService.ts",
+      "characters": 2400
+    },
+    {
+      "path": "src/auth/authService.ts#refreshToken",
+      "characters": 3500
+    }
+  ]
+}

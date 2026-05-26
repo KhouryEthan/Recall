@@ -1,8 +1,6 @@
 import * as path from 'path';
 import * as fs from 'fs';
-import * as os from 'os';
 
-// Lazy-loaded pipeline reference
 let extractor: any = null;
 let initPromise: Promise<void> | null = null;
 
@@ -11,33 +9,27 @@ const EMBEDDING_DIM = 384;
 
 /**
  * Initialize the sentence-transformer embedding pipeline.
- * Loads the model from the bundled extension path if available,
- * otherwise falls back to ~/.recall/models/ cache.
+ * Loads only the model bundled with the extension.
  */
 export async function initEmbeddings(extensionPath: string): Promise<void> {
     if (extractor) { return; }
     if (initPromise) { return initPromise; }
 
     initPromise = (async () => {
-        // Dynamic import — @xenova/transformers is ESM-compatible via this pattern
         const { pipeline, env } = await Function('return import("@xenova/transformers")')() as any;
 
-        // Check for bundled models first (air-gapped), then user cache
         const bundledDir = path.join(extensionPath, 'models');
         const onnxPath = path.join(bundledDir, 'Xenova', 'all-MiniLM-L6-v2', 'onnx', 'model_quantized.onnx');
-        const cacheDir = path.join(os.homedir(), '.recall', 'models');
 
-        if (fs.existsSync(onnxPath)) {
-            // Full model bundled — use it, no network needed
-            env.localModelPath = bundledDir;
-            env.allowRemoteModels = false;
-        } else {
-            // Model weights missing from bundle — allow one-time download to user cache
-            env.allowRemoteModels = true;
-        }
-        env.cacheDir = cacheDir;
-        if (!fs.existsSync(cacheDir)) {
-            fs.mkdirSync(cacheDir, { recursive: true });
+        env.localModelPath = bundledDir;
+        env.allowLocalModels = true;
+        env.allowRemoteModels = false;
+
+        if (!fs.existsSync(onnxPath)) {
+            throw new Error(
+                `Recall embedding model is missing at ${onnxPath}. ` +
+                'Reinstall the extension or rebuild the VSIX with the bundled models directory.'
+            );
         }
 
         extractor = await pipeline('feature-extraction', MODEL_NAME, {
@@ -53,7 +45,7 @@ export async function initEmbeddings(extensionPath: string): Promise<void> {
  */
 export async function embed(text: string): Promise<Float32Array> {
     if (!extractor) {
-        throw new Error('Embeddings not initialized — call initEmbeddings() first');
+        throw new Error('Embeddings not initialized; call initEmbeddings() first');
     }
     const output = await extractor(text, { pooling: 'mean', normalize: true });
     return new Float32Array(output.data);
@@ -84,7 +76,7 @@ export const DIMENSION = EMBEDDING_DIM;
 
 /**
  * Fire-and-forget: embed an observation and store the vector.
- * Safe to call even if the model isn't loaded — silently skips.
+ * Safe to call even if the model isn't loaded; silently skips.
  */
 export function embedObservation(db: { storeEmbedding(id: number, embedding: Float32Array): void }, id: number, content: string): void {
     if (!isReady()) { return; }

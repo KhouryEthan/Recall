@@ -219,7 +219,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
                 tabContent = `<p class="muted centered">All clear — nothing to review.</p>`;
             } else {
                 tabContent = `<p class="sub">${pending.length} awaiting review</p>` +
-                    pending.map(obs => this.renderObservationCard(obs, activeTab, filter)).join('');
+                    pending.map(obs => this.renderObservationCard(obs)).join('');
             }
         } else if (activeTab === 'observations') {
             const filterBar = this.renderFilterBar(allTags, filter);
@@ -227,7 +227,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
                 tabContent = filterBar + `<p class="muted centered">No matching observations.</p>`;
             } else {
                 tabContent = filterBar + `<p class="sub">${observations.length} total</p>` +
-                    observations.map(obs => this.renderObservationCard(obs, activeTab, filter)).join('');
+                    observations.map(obs => this.renderObservationCard(obs)).join('');
             }
         } else if (activeTab === 'files') {
             const cleanupBtn = `<button class="btn btn-warn" style="margin-bottom:8px;width:100%" onclick="send('cleanupArtifacts')">Clean up build artifacts</button>`;
@@ -238,8 +238,9 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
                     fileEntries.map(fe => {
                         const fileName = fe.file_path.split(/[/\\]/).pop() || fe.file_path;
                         const proj = this.fileProject(fe.file_path, wsProjects);
-                        let symbolCount = 0;
-                        try { symbolCount = JSON.parse(fe.symbols).length; } catch {}
+                        const symbolCount = (() => {
+                            try { return JSON.parse(fe.symbols).length; } catch { return 0; }
+                        })();
                         return `
                             <div class="card">
                                 <div class="card-head">
@@ -523,7 +524,7 @@ function deleteFileEntry(id) {
 </body></html>`;
     }
 
-    private renderObservationCard(obs: Observation, tab: string, filter: DashboardFilter): string {
+    private renderObservationCard(obs: Observation): string {
         const esc = (t: string) => this.escapeHtml(t);
         const tags = obs.tags ? obs.tags.split(',').map(t => t.trim()).filter(t => t).map(t =>
             `<span class="tag">${esc(t)}</span>`

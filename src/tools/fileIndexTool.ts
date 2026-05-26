@@ -81,7 +81,7 @@ export class RecallFileIndexTool implements vscode.LanguageModelTool<{ query: st
         output += `Summary: ${entry.summary || '(no summary available)'}\n`;
         output += `Last indexed: ${entry.last_indexed}\n`;
 
-        let symbols: SymbolInfo[] = [];
+        let symbols: SymbolInfo[];
         try {
             symbols = JSON.parse(entry.symbols);
         } catch {

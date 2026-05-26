@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as vscode from 'vscode';
+import { decodeEmbedding, encodeEmbedding } from './embeddingBlob';
+import { sanitizeFtsQuery } from './ftsQuery';
 
 export interface Observation {
     id: number;
@@ -29,51 +31,6 @@ export interface SymbolInfo {
     line: number;
     endLine?: number;
     brief: string;
-}
-
-// Embedding BLOB layout (current = v1):
-//   [0]      uint8  version   (must equal EMBEDDING_BLOB_VERSION)
-//   [1..]    float32 little-endian, EMBEDDING_DIM lanes
-// Legacy BLOBs from versions <1.2.0 have no version byte and are exactly
-// EMBEDDING_DIM*4 bytes long; decoder accepts both layouts.
-const EMBEDDING_BLOB_VERSION = 1;
-const EMBEDDING_DIM = 384;
-const EMBEDDING_BYTES = EMBEDDING_DIM * 4;
-
-function encodeEmbedding(embedding: Float32Array): Buffer {
-    if (embedding.length !== EMBEDDING_DIM) {
-        throw new Error(
-            `Recall: refusing to store embedding of dimension ${embedding.length}; expected ${EMBEDDING_DIM}.`
-        );
-    }
-    const out = Buffer.alloc(1 + EMBEDDING_BYTES);
-    out.writeUInt8(EMBEDDING_BLOB_VERSION, 0);
-    Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength).copy(out, 1);
-    return out;
-}
-
-function decodeEmbedding(buf: Buffer | null | undefined): Float32Array | null {
-    if (!buf || buf.length === 0) { return null; }
-
-    let dataStart: number;
-    if (buf.length === EMBEDDING_BYTES) {
-        // Legacy (pre-1.2.0): no version byte, raw float32 array
-        dataStart = 0;
-    } else if (buf.length === 1 + EMBEDDING_BYTES && buf.readUInt8(0) === EMBEDDING_BLOB_VERSION) {
-        dataStart = 1;
-    } else {
-        // Unknown version or mismatched dim — treat as missing so the caller
-        // can re-embed instead of returning garbage vectors.
-        return null;
-    }
-
-    // Float32Array requires a 4-byte aligned byteOffset, which the version
-    // byte breaks. Read scalar-by-scalar to stay safe regardless of alignment.
-    const out = new Float32Array(EMBEDDING_DIM);
-    for (let i = 0; i < EMBEDDING_DIM; i++) {
-        out[i] = buf.readFloatLE(dataStart + i * 4);
-    }
-    return out;
 }
 
 export class RecallDatabase {
@@ -233,7 +190,7 @@ export class RecallDatabase {
 
     searchObservations(query: string, tags?: string, limit: number = 10): Observation[] {
         // Sanitize query for FTS5 — escape special characters and wrap terms
-        const sanitized = this.sanitizeFtsQuery(query);
+        const sanitized = sanitizeFtsQuery(query);
         if (!sanitized) {
             return [];
         }
@@ -281,7 +238,7 @@ export class RecallDatabase {
         const words = query.split(/\s+/).filter(w => w.length > 0);
         const likeClauses = words.map(() => `content LIKE ?`).join(' AND ');
         let sql = `SELECT * FROM observations WHERE ${likeClauses} AND status != 'rejected'`;
-        let params: (string | number)[] = words.map(w => `%${w}%`);
+        const params: (string | number)[] = words.map(w => `%${w}%`);
 
         if (tags && tags.trim() !== '') {
             const tagList = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
@@ -295,32 +252,6 @@ export class RecallDatabase {
         params.push(limit);
 
         return this.db.prepare(sql).all(...params) as Observation[];
-    }
-
-    private sanitizeFtsQuery(query: string): string {
-        // FTS5 syntax: preserve user-supplied "exact phrase" quoting, but emit
-        // single tokens unquoted with a trailing `*` so that searches like
-        // "function" still match "functions" / "functional" via prefix lookup.
-        // (Quoting a single token disables prefix matching and any tokenizer
-        // normalization, which made FTS behave like a strict-literal search.)
-        const phrases: string[] = [];
-        const remainder = query.replace(/"([^"]+)"/g, (_full, phrase: string) => {
-            const safe = phrase.replace(/[(){}[\]*:^~!@#$%&\\|<>'`"]/g, ' ').trim();
-            if (safe.length > 0) {
-                phrases.push(`"${safe}"`);
-            }
-            return ' ';
-        });
-
-        const tokens = remainder
-            .replace(/[(){}[\]*:^~!@#$%&\\|<>'`"]/g, ' ')
-            .split(/\s+/)
-            .filter(w => w.length > 0)
-            // Words >=3 chars get a prefix wildcard for stemming-like behavior.
-            // Shorter words are emitted as-is to avoid noisy prefix matches.
-            .map(w => (w.length >= 3 ? `${w}*` : w));
-
-        return [...phrases, ...tokens].join(' ');
     }
 
     getRecentObservations(limit: number = 20, days?: number): Observation[] {
@@ -432,7 +363,7 @@ export class RecallDatabase {
         }
 
         // Try FTS on file path, summary, symbols
-        const sanitized = this.sanitizeFtsQuery(query);
+        const sanitized = sanitizeFtsQuery(query);
         if (!sanitized) {
             return [];
         }

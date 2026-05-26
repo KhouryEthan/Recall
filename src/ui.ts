@@ -317,7 +317,6 @@ export class RecallUI {
     private getDashboardHtml(activeTab: string = 'overview', filter?: { status?: string; tag?: string; search?: string }): string {
         const stats = this.db.getStats();
         const allTags = this.db.getDistinctTags();
-        const allSources = this.db.getDistinctSources();
         const esc = (t: string) => this.escapeHtml(t);
 
         let tabContent = '';
@@ -429,8 +428,9 @@ export class RecallUI {
 
             const fileCards = files.map(fe => {
                 const fileName = fe.file_path.split('/').pop() || fe.file_path;
-                let symbols: Array<{ name: string; type: string; line: number }> = [];
-                try { symbols = JSON.parse(fe.symbols); } catch {}
+                const symbols: Array<{ name: string; type: string; line: number }> = (() => {
+                    try { return JSON.parse(fe.symbols); } catch { return []; }
+                })();
                 return `
                     <div class="file-card">
                         <div class="file-header">

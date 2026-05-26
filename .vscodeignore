@@ -1,6 +1,7 @@
 # Source / dev files
 src/
 *.ts
+out/**
 !out/extension.js
 !out/extension.js.map
 tsconfig.json
@@ -9,10 +10,15 @@ esbuild.mjs
 .vscode-test/
 .gitignore
 .git/
+.github/
 .vscode/
 
 # Dev-only files
 docs/
+benchmarks/
+test/
+scripts/
+eslint.config.mjs
 setup.sh
 setup-repo.sh
 CONTRIBUTING.md

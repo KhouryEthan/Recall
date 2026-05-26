@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { RecallDatabase } from '../db';
-import { embed, cosineSimilarity, isReady, embedObservation } from '../embeddings';
+import { embed, cosineSimilarity, isReady } from '../embeddings';
 
 export class RecallSaveTool implements vscode.LanguageModelTool<{ content: string; tags?: string }> {
 

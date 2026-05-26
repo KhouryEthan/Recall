@@ -29,17 +29,17 @@
 
 Recall gives GitHub Copilot a persistent, searchable memory that survives across sessions. It searches prior knowledge before reading files, saves discoveries after solving problems, and indexes every function in your codebase — all locally, with zero cloud dependencies.
 
-## Token Savings (Workflow Comparison)
+## Benchmarking
 
-| Metric | Without Recall | With Recall | Reduction |
-|---|---|---|---|
-| **Tokens per session** | ~111,000 | ~9,700 | **91%** |
-| **Source lines read** | 12,690 | 83 | **99.3%** |
-| **Time to first response** | 60–90 sec | 10–15 sec | **~6×** |
-| **Full file reads** | 4 files | 0 files | **100%** |
-| **Grep searches** | 5 calls | 0 calls | **100%** |
+Recall is designed to reduce repeated file reads by letting Copilot search local memory and inspect cached file indexes before opening source files. The repository now includes a reproducible benchmark harness under `benchmarks/` for measuring that effect.
 
-> Estimates based on a resume-work debugging session in a medium-large codebase. Actual savings vary by project size and memory maturity.
+```bash
+npm run benchmark:estimate
+```
+
+The sample scenario is a template only. Replace it with measured file-read and Recall-tool-output counts from a real task before publishing percentage claims.
+
+See [docs/benchmark-methodology.md](docs/benchmark-methodology.md) for the measurement rules.
 
 ## Quick Start
 
@@ -253,8 +253,8 @@ When the database is empty, bootstrap it:
 ## Development
 
 ```bash
-git clone https://github.com/recall-dev/recall.git
-cd recall
+git clone https://github.com/KhouryEthan/Recall.git
+cd Recall
 npm install
 npm run compile
 ```
@@ -323,8 +323,17 @@ No. All database operations are <1ms. File indexing runs asynchronously on save.
 
 ---
 
-## Contributing
+## Docs
 
+- [Architecture](docs/architecture.md)
+- [Privacy model](docs/privacy.md)
+- [Security model](docs/security-model.md)
+- [Benchmark methodology](docs/benchmark-methodology.md)
+- [Troubleshooting](docs/troubleshooting.md)
+- [Screenshot checklist](docs/screenshots.md)
+- [Roadmap](ROADMAP.md)
+
+## Contributing
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.
 
 ## License
