@@ -10,7 +10,7 @@
 - **Token savings tracker**: Built-in metrics showing how many tokens Recall saves per session and all-time. Visible in the dashboard and via `Recall: Show Database Statistics`.
 - **Unit tests**: vitest test suite with 36 tests covering database CRUD, FTS search, embeddings, file index, persistence, filtering, token estimation, and more.
 - **ESLint flat config**: Migrated from legacy eslintrc to `eslint.config.mjs` with typescript-eslint.
-- **Benchmark harness**: Reproducible token-estimation tool under `benchmarks/` with documented methodology.
+- **Benchmark harness**: Reproducible token-estimation tool under `benchmarks/`.
 - **Documentation**: Architecture overview, privacy model, security model, troubleshooting guide, and screenshot checklist under `docs/`.
 - **Roadmap**: `ROADMAP.md` with short-term milestones for v1.3-v1.5.
 - **Issue templates**: Bug report, feature request, and memory quality templates.

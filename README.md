@@ -313,7 +313,6 @@ docs/                   Architecture, privacy, troubleshooting
 - [Architecture](docs/architecture.md)
 - [Privacy model](docs/privacy.md)
 - [Security model](docs/security-model.md)
-- [Benchmark methodology](docs/benchmark-methodology.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Roadmap](ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)
