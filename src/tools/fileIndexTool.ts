@@ -1,9 +1,10 @@
 import * as vscode from 'vscode';
 import { RecallDatabase, SymbolInfo } from '../db';
+import { TokenTracker } from '../tokenTracker';
 
 export class RecallFileIndexTool implements vscode.LanguageModelTool<{ query: string; symbolQuery?: string }> {
 
-    constructor(private db: RecallDatabase) {}
+    constructor(private db: RecallDatabase, private tokenTracker?: TokenTracker) {}
 
     async invoke(
         options: vscode.LanguageModelToolInvocationOptions<{ query: string; symbolQuery?: string }>,
@@ -30,9 +31,13 @@ export class RecallFileIndexTool implements vscode.LanguageModelTool<{ query: st
         }
 
         let output = '';
+        let totalLines = 0;
         for (const entry of entries) {
             output += this.formatEntry(entry);
+            totalLines += entry.line_count;
         }
+
+        this.tokenTracker?.recordFileIndexHit(output, totalLines);
 
         return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(output)
@@ -81,7 +86,7 @@ export class RecallFileIndexTool implements vscode.LanguageModelTool<{ query: st
         output += `Summary: ${entry.summary || '(no summary available)'}\n`;
         output += `Last indexed: ${entry.last_indexed}\n`;
 
-        let symbols: SymbolInfo[] = [];
+        let symbols: SymbolInfo[];
         try {
             symbols = JSON.parse(entry.symbols);
         } catch {

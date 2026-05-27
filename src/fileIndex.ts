@@ -297,56 +297,11 @@ export class FileIndexBuilder {
     }
 
     /**
-     * Generate a one-sentence summary of the file.
-     * Tries to use the VS Code LM API; falls back to heuristic extraction.
+     * Generate a deterministic one-sentence summary of the file.
+     * This avoids VS Code's Language Model API so indexing stays local-only.
      */
     private async generateSummary(doc: vscode.TextDocument, symbols: SymbolInfo[]): Promise<string> {
-        // Try using VS Code's Language Model API for summary generation
-        try {
-            const models = await vscode.lm.selectChatModels({ family: 'gpt-4o-mini' });
-            if (models.length > 0) {
-                return await this.generateLmSummary(doc, models[0]);
-            }
-        } catch {
-            // LM not available — fall through to heuristic
-        }
-
-        // Also try other model families
-        try {
-            const models = await vscode.lm.selectChatModels();
-            if (models.length > 0) {
-                return await this.generateLmSummary(doc, models[0]);
-            }
-        } catch {
-            // No LM available at all
-        }
-
-        // Fallback: heuristic summary from file header comments and symbol names
         return this.generateHeuristicSummary(doc, symbols);
-    }
-
-    private async generateLmSummary(doc: vscode.TextDocument, model: vscode.LanguageModelChat): Promise<string> {
-        // Read first 80 lines for context
-        const previewEnd = Math.min(doc.lineCount, 80);
-        const preview = doc.getText(new vscode.Range(0, 0, previewEnd, 0));
-
-        const messages = [
-            vscode.LanguageModelChatMessage.User(
-                `Summarize this source file in ONE sentence (max 150 chars). ` +
-                `Focus on what the file does, not implementation details. ` +
-                `Do not start with "This file". Example: "Authentication service — manages JWT tokens, refresh logic, and session persistence"\n\n` +
-                `File: ${doc.uri.fsPath.split(/[\\/]/).pop()}\n\n${preview}`
-            ),
-        ];
-
-        const response = await model.sendRequest(messages, {}, new vscode.CancellationTokenSource().token);
-
-        let summary = '';
-        for await (const chunk of response.text) {
-            summary += chunk;
-        }
-
-        return summary.trim().substring(0, 200);
     }
 
     private generateHeuristicSummary(doc: vscode.TextDocument, symbols: SymbolInfo[]): string {

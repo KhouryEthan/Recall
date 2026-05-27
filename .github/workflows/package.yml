@@ -1,38 +1,52 @@
-name: Package VSIX
+name: CI
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+  pull_request:
   workflow_dispatch:
 
 jobs:
-  package:
-    name: Package (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: linux-x64
-          - os: ubuntu-latest
-            target: linux-arm64
-          - os: windows-latest
-            target: win32-x64
-          - os: windows-latest
-            target: win32-arm64
-          - os: macos-latest
-            target: darwin-x64
-          - os: macos-latest
-            target: darwin-arm64
-
+  quality:
+    name: Quality checks
+    runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Bundle extension
+        run: npm run bundle
+
+  package:
+    name: Package VSIX
+    needs: quality
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -42,11 +56,11 @@ jobs:
         run: npm run bundle
 
       - name: Package VSIX
-        run: npx @vscode/vsce package --target ${{ matrix.target }}
+        run: npx @vscode/vsce package
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: recall-${{ matrix.target }}
+          name: recall-universal
           path: '*.vsix'
           if-no-files-found: error

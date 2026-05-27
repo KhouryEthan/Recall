@@ -1,6 +1,7 @@
 # Source / dev files
 src/
 *.ts
+out/**
 !out/extension.js
 !out/extension.js.map
 tsconfig.json
@@ -9,21 +10,24 @@ esbuild.mjs
 .vscode-test/
 .gitignore
 .git/
+.github/
 .vscode/
 
 # Dev-only files
 docs/
+benchmarks/
+test/
+scripts/
+eslint.config.mjs
 setup.sh
 setup-repo.sh
 CONTRIBUTING.md
 
 # Exclude ALL node_modules except runtime deps not bundled by esbuild
-# (extension JS is bundled into out/extension.js; @xenova/transformers is loaded via dynamic import)
+# fts5-sql-bundle: WebAssembly SQLite with FTS5 (universal, no native binaries)
+# @xenova/transformers: loaded via dynamic import (esbuild can't follow it)
+# @huggingface/jinja: transitive dep of @xenova/transformers
 node_modules/**
+!node_modules/fts5-sql-bundle/**
 !node_modules/@xenova/transformers/**
 !node_modules/@huggingface/jinja/**
-!node_modules/better-sqlite3/**
-!node_modules/bindings/**
-!node_modules/file-uri-to-path/**
-!node_modules/onnxruntime-node/**
-!node_modules/onnxruntime-common/**

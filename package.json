@@ -1,17 +1,17 @@
 {
   "name": "recall",
-  "displayName": "Recall — Persistent Developer Memory",
-  "description": "Persistent, searchable developer memory that Copilot uses autonomously. Hybrid keyword + semantic search, automatic file indexing (30+ languages), passive event capture, deduplication, import/export, and a bundled offline AI model — all 100% local and private.",
-  "version": "1.2.0",
+  "displayName": "Recall - Persistent Developer Memory",
+  "description": "Persistent, searchable developer memory that Copilot uses autonomously. Hybrid keyword + semantic search, automatic file indexing (30+ languages), passive event capture, deduplication, import/export, and a bundled offline AI model. 100% local and private.",
+  "version": "1.3.0",
   "publisher": "recall-dev",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/recall-dev/recall.git"
+    "url": "https://github.com/KhouryEthan/Recall.git"
   },
-  "homepage": "https://github.com/recall-dev/recall#readme",
+  "homepage": "https://github.com/KhouryEthan/Recall#readme",
   "bugs": {
-    "url": "https://github.com/recall-dev/recall/issues"
+    "url": "https://github.com/KhouryEthan/Recall/issues"
   },
   "keywords": [
     "copilot",
@@ -293,26 +293,26 @@
     "bundle": "node esbuild.mjs",
     "watch": "tsc -watch -p ./",
     "watch:esbuild": "node esbuild.mjs --watch",
-    "lint": "eslint src --ext ts",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "benchmark:estimate": "node scripts/estimate-tokens.mjs benchmarks/scenarios/resume-debugging.json",
     "package": "npx @vscode/vsce package",
-    "package:win32-x64": "npx @vscode/vsce package --target win32-x64",
-    "package:win32-arm64": "npx @vscode/vsce package --target win32-arm64",
-    "package:linux-x64": "npx @vscode/vsce package --target linux-x64",
-    "package:linux-arm64": "npx @vscode/vsce package --target linux-arm64",
-    "package:darwin-x64": "npx @vscode/vsce package --target darwin-x64",
-    "package:darwin-arm64": "npx @vscode/vsce package --target darwin-arm64",
-    "install-ext": "code --install-extension recall-1.2.0.vsix --force"
+    "install-ext": "code --install-extension recall-1.3.0.vsix --force"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",
-    "better-sqlite3": "^12.10.0"
+    "fts5-sql-bundle": "^1.0.2"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12",
+    "@eslint/js": "^10.0.1",
+    "@types/eslint__js": "^8.42.3",
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.95.0",
     "@vscode/vsce": "^3.2.0",
     "esbuild": "^0.28.0",
-    "typescript": "^5.5.0"
+    "eslint": "^10.4.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.60.0",
+    "vitest": "^4.1.7"
   }
 }

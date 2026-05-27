@@ -1,8 +1,21 @@
-import Database from 'better-sqlite3';
+// ═══════════════════════════════════════════════════════════════════════════════
+// OLD VERSION (pre-1.3.0): Used better-sqlite3 (native C++ addon).
+// Migrated to sql.js (WebAssembly) in v1.3.0 because better-sqlite3 required
+// platform-specific native binaries that broke on:
+//   - Windows: NODE_MODULE_VERSION mismatch (Electron ABI != Node ABI)
+//   - Linux: glibc version mismatch between build host and user's distro
+//   - Remote SSH / WSL: binary compiled for wrong target
+// sql.js runs identically on every platform with zero native dependencies.
+// See git history for the full better-sqlite3 implementation (commit before v1.3.0).
+// ═══════════════════════════════════════════════════════════════════════════════
+
+import initSqlJs, { Database } from 'fts5-sql-bundle';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as vscode from 'vscode';
+import { decodeEmbedding, encodeEmbedding } from './embeddingBlob';
+import { sanitizeFtsQuery } from './ftsQuery';
 
 export interface Observation {
     id: number;
@@ -18,79 +31,51 @@ export interface FileIndexEntry {
     id: number;
     file_path: string;
     summary: string;
-    symbols: string; // JSON array
+    symbols: string;
     line_count: number;
     last_indexed: string;
 }
 
 export interface SymbolInfo {
     name: string;
-    type: string; // 'function' | 'class' | 'struct' | 'enum' | 'method' | 'variable'
+    type: string;
     line: number;
     endLine?: number;
     brief: string;
 }
 
-// Embedding BLOB layout (current = v1):
-//   [0]      uint8  version   (must equal EMBEDDING_BLOB_VERSION)
-//   [1..]    float32 little-endian, EMBEDDING_DIM lanes
-// Legacy BLOBs from versions <1.2.0 have no version byte and are exactly
-// EMBEDDING_DIM*4 bytes long; decoder accepts both layouts.
-const EMBEDDING_BLOB_VERSION = 1;
-const EMBEDDING_DIM = 384;
-const EMBEDDING_BYTES = EMBEDDING_DIM * 4;
-
-function encodeEmbedding(embedding: Float32Array): Buffer {
-    if (embedding.length !== EMBEDDING_DIM) {
-        throw new Error(
-            `Recall: refusing to store embedding of dimension ${embedding.length}; expected ${EMBEDDING_DIM}.`
-        );
-    }
-    const out = Buffer.alloc(1 + EMBEDDING_BYTES);
-    out.writeUInt8(EMBEDDING_BLOB_VERSION, 0);
-    Buffer.from(embedding.buffer, embedding.byteOffset, embedding.byteLength).copy(out, 1);
-    return out;
-}
-
-function decodeEmbedding(buf: Buffer | null | undefined): Float32Array | null {
-    if (!buf || buf.length === 0) { return null; }
-
-    let dataStart: number;
-    if (buf.length === EMBEDDING_BYTES) {
-        // Legacy (pre-1.2.0): no version byte, raw float32 array
-        dataStart = 0;
-    } else if (buf.length === 1 + EMBEDDING_BYTES && buf.readUInt8(0) === EMBEDDING_BLOB_VERSION) {
-        dataStart = 1;
-    } else {
-        // Unknown version or mismatched dim — treat as missing so the caller
-        // can re-embed instead of returning garbage vectors.
-        return null;
-    }
-
-    // Float32Array requires a 4-byte aligned byteOffset, which the version
-    // byte breaks. Read scalar-by-scalar to stay safe regardless of alignment.
-    const out = new Float32Array(EMBEDDING_DIM);
-    for (let i = 0; i < EMBEDDING_DIM; i++) {
-        out[i] = buf.readFloatLE(dataStart + i * 4);
-    }
-    return out;
-}
-
 export class RecallDatabase {
-    private db: Database.Database;
+    private db!: Database;
     private dbPath: string;
 
-    constructor(customPath?: string) {
-        this.dbPath = this.resolvePath(customPath);
-        const dir = path.dirname(this.dbPath);
+    private constructor(dbPath: string) {
+        this.dbPath = dbPath;
+    }
+
+    static async create(customPath?: string): Promise<RecallDatabase> {
+        const instance = new RecallDatabase(RecallDatabase.resolvePath(customPath));
+        const dir = path.dirname(instance.dbPath);
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
-        this.db = new Database(this.dbPath);
-        this.initialize();
+
+        const wasmDir = path.dirname(require.resolve('fts5-sql-bundle/dist/sql-wasm.wasm'));
+        const SQL = await initSqlJs({
+            locateFile: (file: string) => path.join(wasmDir, file),
+        });
+
+        if (fs.existsSync(instance.dbPath)) {
+            const fileBuffer = fs.readFileSync(instance.dbPath);
+            instance.db = new SQL.Database(fileBuffer);
+        } else {
+            instance.db = new SQL.Database();
+        }
+
+        instance.initialize();
+        return instance;
     }
 
-    private resolvePath(customPath?: string): string {
+    private static resolvePath(customPath?: string): string {
         if (customPath && customPath.trim() !== '') {
             return customPath;
         }
@@ -98,12 +83,10 @@ export class RecallDatabase {
     }
 
     private initialize(): void {
-        // Enable WAL mode for concurrent read/write safety
-        this.db.pragma('journal_mode = WAL');
-        this.db.pragma('foreign_keys = ON');
+        this.db.run('PRAGMA journal_mode = WAL');
+        this.db.run('PRAGMA foreign_keys = ON');
 
-        // Create observations table
-        this.db.exec(`
+        this.db.run(`
             CREATE TABLE IF NOT EXISTS observations (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 content     TEXT NOT NULL,
@@ -111,43 +94,41 @@ export class RecallDatabase {
                 project     TEXT DEFAULT '',
                 source      TEXT DEFAULT '',
                 status      TEXT DEFAULT 'verified',
-                created_at  TEXT DEFAULT (datetime('now'))
-            );
+                created_at  TEXT DEFAULT (datetime('now')),
+                embedding   BLOB DEFAULT NULL
+            )
         `);
 
-        // Create FTS5 virtual table for observations
-        this.db.exec(`
+        this.db.run(`
             CREATE VIRTUAL TABLE IF NOT EXISTS observations_fts USING fts5(
                 content, tags, source,
                 content='observations',
                 content_rowid='id'
-            );
+            )
         `);
 
-        // Triggers to keep FTS in sync with observations table
-        this.db.exec(`
+        this.db.run(`
             CREATE TRIGGER IF NOT EXISTS observations_ai AFTER INSERT ON observations BEGIN
                 INSERT INTO observations_fts(rowid, content, tags, source)
                 VALUES (new.id, new.content, new.tags, new.source);
-            END;
+            END
         `);
-        this.db.exec(`
+        this.db.run(`
             CREATE TRIGGER IF NOT EXISTS observations_ad AFTER DELETE ON observations BEGIN
                 INSERT INTO observations_fts(observations_fts, rowid, content, tags, source)
                 VALUES ('delete', old.id, old.content, old.tags, old.source);
-            END;
+            END
         `);
-        this.db.exec(`
+        this.db.run(`
             CREATE TRIGGER IF NOT EXISTS observations_au AFTER UPDATE ON observations BEGIN
                 INSERT INTO observations_fts(observations_fts, rowid, content, tags, source)
                 VALUES ('delete', old.id, old.content, old.tags, old.source);
                 INSERT INTO observations_fts(rowid, content, tags, source)
                 VALUES (new.id, new.content, new.tags, new.source);
-            END;
+            END
         `);
 
-        // Create file_index table
-        this.db.exec(`
+        this.db.run(`
             CREATE TABLE IF NOT EXISTS file_index (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
                 file_path     TEXT UNIQUE NOT NULL,
@@ -155,63 +136,97 @@ export class RecallDatabase {
                 symbols       TEXT DEFAULT '[]',
                 line_count    INTEGER DEFAULT 0,
                 last_indexed  TEXT DEFAULT (datetime('now'))
-            );
+            )
         `);
 
-        // FTS5 for file index
-        this.db.exec(`
+        this.db.run(`
             CREATE VIRTUAL TABLE IF NOT EXISTS file_index_fts USING fts5(
                 file_path, summary, symbols,
                 content='file_index',
                 content_rowid='id'
-            );
+            )
         `);
 
-        // Triggers for file_index FTS sync
-        this.db.exec(`
+        this.db.run(`
             CREATE TRIGGER IF NOT EXISTS file_index_ai AFTER INSERT ON file_index BEGIN
                 INSERT INTO file_index_fts(rowid, file_path, summary, symbols)
                 VALUES (new.id, new.file_path, new.summary, new.symbols);
-            END;
+            END
         `);
-        this.db.exec(`
+        this.db.run(`
             CREATE TRIGGER IF NOT EXISTS file_index_ad AFTER DELETE ON file_index BEGIN
                 INSERT INTO file_index_fts(file_index_fts, rowid, file_path, summary, symbols)
                 VALUES ('delete', old.id, old.file_path, old.summary, old.symbols);
-            END;
+            END
         `);
-        this.db.exec(`
+        this.db.run(`
             CREATE TRIGGER IF NOT EXISTS file_index_au AFTER UPDATE ON file_index BEGIN
                 INSERT INTO file_index_fts(file_index_fts, rowid, file_path, summary, symbols)
                 VALUES ('delete', old.id, old.file_path, old.summary, old.symbols);
                 INSERT INTO file_index_fts(rowid, file_path, summary, symbols)
                 VALUES (new.id, new.file_path, new.summary, new.symbols);
-            END;
+            END
         `);
 
-        // Create indexes
-        this.db.exec(`
-            CREATE INDEX IF NOT EXISTS idx_observations_tags ON observations(tags);
-            CREATE INDEX IF NOT EXISTS idx_observations_source ON observations(source);
-            CREATE INDEX IF NOT EXISTS idx_observations_status ON observations(status);
-            CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at);
-            CREATE INDEX IF NOT EXISTS idx_file_index_path ON file_index(file_path);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_observations_tags ON observations(tags)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_observations_source ON observations(source)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_observations_status ON observations(status)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_observations_created ON observations(created_at)`);
+        this.db.run(`CREATE INDEX IF NOT EXISTS idx_file_index_path ON file_index(file_path)`);
+
+        this.db.run(`
+            CREATE TABLE IF NOT EXISTS token_stats (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                search_hits INTEGER DEFAULT 0,
+                file_index_hits INTEGER DEFAULT 0,
+                tokens_used INTEGER DEFAULT 0,
+                tokens_without_recall INTEGER DEFAULT 0,
+                last_updated TEXT DEFAULT (datetime('now'))
+            )
         `);
 
-        // ─── Migration: Add embedding column ─────────────────────────────
         this.migrateEmbeddings();
     }
 
     private migrateEmbeddings(): void {
-        // Check if embedding column exists
-        const cols = this.db.prepare(`PRAGMA table_info(observations)`).all() as Array<{ name: string }>;
-        const hasEmbedding = cols.some(c => c.name === 'embedding');
-        if (!hasEmbedding) {
-            this.db.exec(`ALTER TABLE observations ADD COLUMN embedding BLOB DEFAULT NULL`);
+        const cols = this.queryAll<{ name: string }>('PRAGMA table_info(observations)');
+        if (!cols.some(c => c.name === 'embedding')) {
+            this.db.run('ALTER TABLE observations ADD COLUMN embedding BLOB DEFAULT NULL');
         }
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────
+    private persist(): void {
+        const data = this.db.export();
+        const buffer = Buffer.from(data);
+        fs.writeFileSync(this.dbPath, buffer);
+    }
+
+    private queryAll<T>(sql: string, params?: any[]): T[] {
+        const stmt = this.db.prepare(sql);
+        if (params) { stmt.bind(params); }
+        const results: T[] = [];
+        while (stmt.step()) {
+            results.push(stmt.getAsObject() as T);
+        }
+        stmt.free();
+        return results;
+    }
+
+    private queryOne<T>(sql: string, params?: any[]): T | undefined {
+        const stmt = this.db.prepare(sql);
+        if (params) { stmt.bind(params); }
+        let result: T | undefined;
+        if (stmt.step()) {
+            result = stmt.getAsObject() as T;
+        }
+        stmt.free();
+        return result;
+    }
+
+    private runAndPersist(sql: string, params?: any[]): void {
+        this.db.run(sql, params);
+        this.persist();
+    }
 
     private getProjectName(): string {
         const configured = vscode.workspace.getConfiguration('recall').get<string>('projectName', '');
@@ -223,30 +238,27 @@ export class RecallDatabase {
 
     insertObservation(content: string, tags: string = '', source: string = 'manual', status: string = 'verified', project?: string): number {
         const proj = project || this.getProjectName();
-        const stmt = this.db.prepare(`
-            INSERT INTO observations (content, tags, project, source, status)
-            VALUES (?, ?, ?, ?, ?)
-        `);
-        const result = stmt.run(content, tags, proj, source, status);
-        return result.lastInsertRowid as number;
+        this.db.run(
+            `INSERT INTO observations (content, tags, project, source, status) VALUES (?, ?, ?, ?, ?)`,
+            [content, tags, proj, source, status]
+        );
+        const row = this.queryOne<{ id: number }>('SELECT last_insert_rowid() as id');
+        this.persist();
+        return row!.id;
     }
 
     searchObservations(query: string, tags?: string, limit: number = 10): Observation[] {
-        // Sanitize query for FTS5 — escape special characters and wrap terms
-        const sanitized = this.sanitizeFtsQuery(query);
-        if (!sanitized) {
-            return [];
-        }
+        const sanitized = sanitizeFtsQuery(query);
+        if (!sanitized) { return []; }
 
         let sql: string;
-        let params: (string | number)[];
+        let params: any[];
 
         if (tags && tags.trim() !== '') {
-            // Filter by tags using LIKE on the tags column
             const tagList = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
             const tagClauses = tagList.map(() => `o.tags LIKE ?`).join(' AND ');
             sql = `
-                SELECT o.*, rank
+                SELECT o.id, o.content, o.tags, o.project, o.source, o.status, o.created_at
                 FROM observations_fts fts
                 JOIN observations o ON o.id = fts.rowid
                 WHERE observations_fts MATCH ?
@@ -258,7 +270,7 @@ export class RecallDatabase {
             params = [sanitized, ...tagList.map(t => `%${t}%`), limit];
         } else {
             sql = `
-                SELECT o.*, rank
+                SELECT o.id, o.content, o.tags, o.project, o.source, o.status, o.created_at
                 FROM observations_fts fts
                 JOIN observations o ON o.id = fts.rowid
                 WHERE observations_fts MATCH ?
@@ -270,9 +282,8 @@ export class RecallDatabase {
         }
 
         try {
-            return this.db.prepare(sql).all(...params) as Observation[];
+            return this.queryAll<Observation>(sql, params);
         } catch {
-            // If FTS fails (e.g., syntax error), fall back to LIKE search
             return this.searchObservationsFallback(query, tags, limit);
         }
     }
@@ -281,51 +292,25 @@ export class RecallDatabase {
         const words = query.split(/\s+/).filter(w => w.length > 0);
         const likeClauses = words.map(() => `content LIKE ?`).join(' AND ');
         let sql = `SELECT * FROM observations WHERE ${likeClauses} AND status != 'rejected'`;
-        let params: (string | number)[] = words.map(w => `%${w}%`);
+        const params: any[] = words.map(w => `%${w}%`);
 
         if (tags && tags.trim() !== '') {
             const tagList = tags.split(',').map(t => t.trim()).filter(t => t.length > 0);
-            tagList.forEach(t => {
+            for (const t of tagList) {
                 sql += ` AND tags LIKE ?`;
                 params.push(`%${t}%`);
-            });
+            }
         }
 
         sql += ` ORDER BY created_at DESC LIMIT ?`;
         params.push(limit);
 
-        return this.db.prepare(sql).all(...params) as Observation[];
-    }
-
-    private sanitizeFtsQuery(query: string): string {
-        // FTS5 syntax: preserve user-supplied "exact phrase" quoting, but emit
-        // single tokens unquoted with a trailing `*` so that searches like
-        // "function" still match "functions" / "functional" via prefix lookup.
-        // (Quoting a single token disables prefix matching and any tokenizer
-        // normalization, which made FTS behave like a strict-literal search.)
-        const phrases: string[] = [];
-        const remainder = query.replace(/"([^"]+)"/g, (_full, phrase: string) => {
-            const safe = phrase.replace(/[(){}[\]*:^~!@#$%&\\|<>'`"]/g, ' ').trim();
-            if (safe.length > 0) {
-                phrases.push(`"${safe}"`);
-            }
-            return ' ';
-        });
-
-        const tokens = remainder
-            .replace(/[(){}[\]*:^~!@#$%&\\|<>'`"]/g, ' ')
-            .split(/\s+/)
-            .filter(w => w.length > 0)
-            // Words >=3 chars get a prefix wildcard for stemming-like behavior.
-            // Shorter words are emitted as-is to avoid noisy prefix matches.
-            .map(w => (w.length >= 3 ? `${w}*` : w));
-
-        return [...phrases, ...tokens].join(' ');
+        return this.queryAll<Observation>(sql, params);
     }
 
     getRecentObservations(limit: number = 20, days?: number): Observation[] {
         let sql = `SELECT * FROM observations WHERE status != 'rejected'`;
-        const params: (string | number)[] = [];
+        const params: any[] = [];
 
         if (days) {
             sql += ` AND created_at >= datetime('now', ?)`;
@@ -335,130 +320,122 @@ export class RecallDatabase {
         sql += ` ORDER BY created_at DESC LIMIT ?`;
         params.push(limit);
 
-        return this.db.prepare(sql).all(...params) as Observation[];
+        return this.queryAll<Observation>(sql, params);
     }
 
     getPendingObservations(): Observation[] {
-        return this.db.prepare(
+        return this.queryAll<Observation>(
             `SELECT * FROM observations WHERE status = 'pending' ORDER BY created_at DESC`
-        ).all() as Observation[];
+        );
     }
 
     updateStatus(id: number, status: string): void {
-        this.db.prepare(`UPDATE observations SET status = ? WHERE id = ?`).run(status, id);
+        this.runAndPersist(`UPDATE observations SET status = ? WHERE id = ?`, [status, id]);
     }
 
     updateContent(id: number, content: string): void {
-        this.db.prepare(`UPDATE observations SET content = ? WHERE id = ?`).run(content, id);
+        this.runAndPersist(`UPDATE observations SET content = ? WHERE id = ?`, [content, id]);
     }
 
     deleteObservation(id: number): void {
-        this.db.prepare(`DELETE FROM observations WHERE id = ?`).run(id);
+        this.runAndPersist(`DELETE FROM observations WHERE id = ?`, [id]);
     }
 
     expirePendingObservations(days: number = 7): number {
-        const result = this.db.prepare(`
-            DELETE FROM observations
-            WHERE status = 'pending'
-            AND created_at < datetime('now', ?)
-        `).run(`-${days} days`);
-        return result.changes;
+        const before = this.queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM observations WHERE status = 'pending' AND created_at < datetime('now', ?)`, [`-${days} days`]);
+        this.runAndPersist(`DELETE FROM observations WHERE status = 'pending' AND created_at < datetime('now', ?)`, [`-${days} days`]);
+        return before?.c ?? 0;
     }
 
     getObservationById(id: number): Observation | undefined {
-        return this.db.prepare(`SELECT * FROM observations WHERE id = ?`).get(id) as Observation | undefined;
+        return this.queryOne<Observation>(`SELECT * FROM observations WHERE id = ?`, [id]);
     }
 
     // ─── Embedding Operations ────────────────────────────────────────────
 
     storeEmbedding(id: number, embedding: Float32Array): void {
         const buffer = encodeEmbedding(embedding);
-        this.db.prepare(`UPDATE observations SET embedding = ? WHERE id = ?`).run(buffer, id);
+        this.db.run(`UPDATE observations SET embedding = ? WHERE id = ?`, [buffer, id]);
+        this.persist();
     }
 
     getEmbedding(id: number): Float32Array | null {
-        const row = this.db.prepare(`SELECT embedding FROM observations WHERE id = ?`).get(id) as { embedding: Buffer | null } | undefined;
-        return decodeEmbedding(row?.embedding ?? null);
+        const row = this.queryOne<{ embedding: Uint8Array | null }>(`SELECT embedding FROM observations WHERE id = ?`, [id]);
+        if (!row?.embedding) { return null; }
+        return decodeEmbedding(Buffer.from(row.embedding));
     }
 
     getAllWithEmbeddings(): Array<{ id: number; content: string; tags: string; project: string; source: string; status: string; created_at: string; embedding: Float32Array }> {
-        const rows = this.db.prepare(
+        const rows = this.queryAll<{ id: number; content: string; tags: string; project: string; source: string; status: string; created_at: string; embedding: Uint8Array }>(
             `SELECT id, content, tags, project, source, status, created_at, embedding FROM observations WHERE embedding IS NOT NULL AND status != 'rejected'`
-        ).all() as Array<{ id: number; content: string; tags: string; project: string; source: string; status: string; created_at: string; embedding: Buffer }>;
+        );
 
         const out: Array<{ id: number; content: string; tags: string; project: string; source: string; status: string; created_at: string; embedding: Float32Array }> = [];
         for (const r of rows) {
-            const decoded = decodeEmbedding(r.embedding);
-            if (!decoded) { continue; } // skip incompatible-version BLOBs
+            const decoded = decodeEmbedding(Buffer.from(r.embedding));
+            if (!decoded) { continue; }
             out.push({ ...r, embedding: decoded });
         }
         return out;
     }
 
     getObservationsWithoutEmbeddings(): Observation[] {
-        return this.db.prepare(
+        return this.queryAll<Observation>(
             `SELECT * FROM observations WHERE embedding IS NULL AND status != 'rejected' ORDER BY created_at DESC`
-        ).all() as Observation[];
+        );
     }
 
     // ─── File Index Operations ───────────────────────────────────────────
 
     upsertFileIndex(filePath: string, summary: string, symbols: SymbolInfo[], lineCount: number): void {
         const symbolsJson = JSON.stringify(symbols);
-        const existing = this.db.prepare(`SELECT id FROM file_index WHERE file_path = ?`).get(filePath);
+        const existing = this.queryOne<{ id: number }>(`SELECT id FROM file_index WHERE file_path = ?`, [filePath]);
 
         if (existing) {
-            this.db.prepare(`
-                UPDATE file_index
-                SET summary = ?, symbols = ?, line_count = ?, last_indexed = datetime('now')
-                WHERE file_path = ?
-            `).run(summary, symbolsJson, lineCount, filePath);
+            this.runAndPersist(
+                `UPDATE file_index SET summary = ?, symbols = ?, line_count = ?, last_indexed = datetime('now') WHERE file_path = ?`,
+                [summary, symbolsJson, lineCount, filePath]
+            );
         } else {
-            this.db.prepare(`
-                INSERT INTO file_index (file_path, summary, symbols, line_count)
-                VALUES (?, ?, ?, ?)
-            `).run(filePath, summary, symbolsJson, lineCount);
+            this.runAndPersist(
+                `INSERT INTO file_index (file_path, summary, symbols, line_count) VALUES (?, ?, ?, ?)`,
+                [filePath, summary, symbolsJson, lineCount]
+            );
         }
     }
 
     lookupFileIndex(query: string): FileIndexEntry[] {
-        // Try exact path match first
-        const exact = this.db.prepare(
-            `SELECT * FROM file_index WHERE file_path = ? OR file_path LIKE ?`
-        ).all(query, `%${query}`) as FileIndexEntry[];
+        const exact = this.queryAll<FileIndexEntry>(
+            `SELECT * FROM file_index WHERE file_path = ? OR file_path LIKE ?`,
+            [query, `%${query}`]
+        );
+        if (exact.length > 0) { return exact; }
 
-        if (exact.length > 0) {
-            return exact;
-        }
-
-        // Try FTS on file path, summary, symbols
-        const sanitized = this.sanitizeFtsQuery(query);
-        if (!sanitized) {
-            return [];
-        }
+        const sanitized = sanitizeFtsQuery(query);
+        if (!sanitized) { return []; }
 
         try {
-            return this.db.prepare(`
+            return this.queryAll<FileIndexEntry>(`
                 SELECT fi.*
                 FROM file_index_fts fts
                 JOIN file_index fi ON fi.id = fts.rowid
                 WHERE file_index_fts MATCH ?
                 LIMIT 10
-            `).all(sanitized) as FileIndexEntry[];
+            `, [sanitized]);
         } catch {
-            // Fallback to LIKE search
-            return this.db.prepare(
-                `SELECT * FROM file_index WHERE file_path LIKE ? OR summary LIKE ? OR symbols LIKE ? LIMIT 10`
-            ).all(`%${query}%`, `%${query}%`, `%${query}%`) as FileIndexEntry[];
+            return this.queryAll<FileIndexEntry>(
+                `SELECT * FROM file_index WHERE file_path LIKE ? OR summary LIKE ? OR symbols LIKE ? LIMIT 10`,
+                [`%${query}%`, `%${query}%`, `%${query}%`]
+            );
         }
     }
 
     searchSymbols(symbolName: string): Array<{ file_path: string; symbol: SymbolInfo }> {
         const results: Array<{ file_path: string; symbol: SymbolInfo }> = [];
-
-        const rows = this.db.prepare(
-            `SELECT file_path, symbols FROM file_index WHERE symbols LIKE ?`
-        ).all(`%${symbolName}%`) as FileIndexEntry[];
+        const rows = this.queryAll<FileIndexEntry>(
+            `SELECT file_path, symbols FROM file_index WHERE symbols LIKE ?`,
+            [`%${symbolName}%`]
+        );
 
         for (const row of rows) {
             try {
@@ -468,22 +445,18 @@ export class RecallDatabase {
                         results.push({ file_path: row.file_path, symbol: sym });
                     }
                 }
-            } catch {
-                // Skip malformed JSON
-            }
+            } catch { /* skip malformed JSON */ }
         }
 
         return results;
     }
 
     getFileIndexEntry(filePath: string): FileIndexEntry | undefined {
-        return this.db.prepare(
-            `SELECT * FROM file_index WHERE file_path = ?`
-        ).get(filePath) as FileIndexEntry | undefined;
+        return this.queryOne<FileIndexEntry>(`SELECT * FROM file_index WHERE file_path = ?`, [filePath]);
     }
 
     deleteFileIndexEntry(id: number): void {
-        this.db.prepare(`DELETE FROM file_index WHERE id = ?`).run(id);
+        this.runAndPersist(`DELETE FROM file_index WHERE id = ?`, [id]);
     }
 
     // ─── Statistics ──────────────────────────────────────────────────────
@@ -499,28 +472,23 @@ export class RecallDatabase {
         topTags: Array<{ tag: string; count: number }>;
         dbSizeBytes: number;
     } {
-        const total = (this.db.prepare(`SELECT COUNT(*) as c FROM observations`).get() as { c: number }).c;
-        const verified = (this.db.prepare(`SELECT COUNT(*) as c FROM observations WHERE status = 'verified'`).get() as { c: number }).c;
-        const pending = (this.db.prepare(`SELECT COUNT(*) as c FROM observations WHERE status = 'pending'`).get() as { c: number }).c;
-        const filesIndexed = (this.db.prepare(`SELECT COUNT(*) as c FROM file_index`).get() as { c: number }).c;
+        const total = this.queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM observations`)!.c;
+        const verified = this.queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM observations WHERE status = 'verified'`)!.c;
+        const pending = this.queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM observations WHERE status = 'pending'`)!.c;
+        const filesIndexed = this.queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM file_index`)!.c;
 
-        // Count total symbols across all files
         let totalSymbols = 0;
-        const allSymbols = this.db.prepare(`SELECT symbols FROM file_index`).all() as Array<{ symbols: string }>;
+        const allSymbols = this.queryAll<{ symbols: string }>(`SELECT symbols FROM file_index`);
         for (const row of allSymbols) {
             try {
-                const syms: SymbolInfo[] = JSON.parse(row.symbols);
-                totalSymbols += syms.length;
-            } catch {
-                // skip
-            }
+                totalSymbols += (JSON.parse(row.symbols) as SymbolInfo[]).length;
+            } catch { /* skip */ }
         }
 
-        const oldest = this.db.prepare(`SELECT MIN(created_at) as d FROM observations`).get() as { d: string | null };
-        const newest = this.db.prepare(`SELECT MAX(created_at) as d FROM observations`).get() as { d: string | null };
+        const oldest = this.queryOne<{ d: string | null }>(`SELECT MIN(created_at) as d FROM observations`);
+        const newest = this.queryOne<{ d: string | null }>(`SELECT MAX(created_at) as d FROM observations`);
 
-        // Top tags (split comma-separated tags and count)
-        const tagRows = this.db.prepare(`SELECT tags FROM observations WHERE tags != ''`).all() as Array<{ tags: string }>;
+        const tagRows = this.queryAll<{ tags: string }>(`SELECT tags FROM observations WHERE tags != ''`);
         const tagCounts = new Map<string, number>();
         for (const row of tagRows) {
             for (const tag of row.tags.split(',').map(t => t.trim()).filter(t => t.length > 0)) {
@@ -533,11 +501,7 @@ export class RecallDatabase {
             .map(([tag, count]) => ({ tag, count }));
 
         let dbSizeBytes = 0;
-        try {
-            dbSizeBytes = fs.statSync(this.dbPath).size;
-        } catch {
-            // ignore
-        }
+        try { dbSizeBytes = fs.statSync(this.dbPath).size; } catch { /* ignore */ }
 
         return {
             totalObservations: total,
@@ -545,8 +509,8 @@ export class RecallDatabase {
             pendingObservations: pending,
             totalFilesIndexed: filesIndexed,
             totalSymbols,
-            oldestObservation: oldest.d,
-            newestObservation: newest.d,
+            oldestObservation: oldest?.d ?? null,
+            newestObservation: newest?.d ?? null,
             topTags,
             dbSizeBytes,
         };
@@ -556,7 +520,7 @@ export class RecallDatabase {
 
     getAllObservations(filters?: { status?: string; tag?: string; source?: string; project?: string }): Observation[] {
         let sql = `SELECT * FROM observations WHERE 1=1`;
-        const params: string[] = [];
+        const params: any[] = [];
 
         if (filters?.status) {
             sql += ` AND status = ?`;
@@ -576,17 +540,16 @@ export class RecallDatabase {
         }
 
         sql += ` ORDER BY created_at DESC`;
-        return this.db.prepare(sql).all(...params) as Observation[];
+        return this.queryAll<Observation>(sql, params.length > 0 ? params : undefined);
     }
 
     getDistinctProjects(): string[] {
-        return (this.db.prepare(
+        return this.queryAll<{ project: string }>(
             `SELECT DISTINCT project FROM observations WHERE project != '' ORDER BY project`
-        ).all() as Array<{ project: string }>).map(r => r.project);
+        ).map(r => r.project);
     }
 
     cleanupBuildArtifacts(): number {
-        // Directory names that should never appear in source file paths
         const blocked = [
             'node_modules', '.next', '.nuxt', '.output', '.svelte-kit', '.astro',
             '.vite', '.parcel-cache', '.turbo', '.cache', 'coverage', '.nyc_output',
@@ -595,28 +558,30 @@ export class RecallDatabase {
         ];
         let total = 0;
         for (const dir of blocked) {
-            // Match both forward slash (macOS/Linux) and backslash (Windows)
-            const r1 = this.db.prepare(`DELETE FROM file_index WHERE file_path LIKE ?`).run(`%/${dir}/%`);
-            const r2 = this.db.prepare(`DELETE FROM file_index WHERE file_path LIKE ?`).run(`%\\${dir}\\%`);
-            total += r1.changes + r2.changes;
+            const before = this.queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM file_index WHERE file_path LIKE ? OR file_path LIKE ?`, [`%/${dir}/%`, `%\\${dir}\\%`]);
+            this.db.run(`DELETE FROM file_index WHERE file_path LIKE ? OR file_path LIKE ?`, [`%/${dir}/%`, `%\\${dir}\\%`]);
+            total += before?.c ?? 0;
         }
+        if (total > 0) { this.persist(); }
         return total;
     }
 
     getAllFileIndexEntries(): FileIndexEntry[] {
-        return this.db.prepare(`SELECT * FROM file_index ORDER BY file_path`).all() as FileIndexEntry[];
+        return this.queryAll<FileIndexEntry>(`SELECT * FROM file_index ORDER BY file_path`);
     }
 
     updateObservation(id: number, content: string, tags: string): void {
-        this.db.prepare(`UPDATE observations SET content = ?, tags = ? WHERE id = ?`).run(content, tags, id);
+        this.runAndPersist(`UPDATE observations SET content = ?, tags = ? WHERE id = ?`, [content, tags, id]);
     }
 
     getDistinctSources(): string[] {
-        return (this.db.prepare(`SELECT DISTINCT source FROM observations ORDER BY source`).all() as Array<{ source: string }>).map(r => r.source);
+        return this.queryAll<{ source: string }>(
+            `SELECT DISTINCT source FROM observations ORDER BY source`
+        ).map(r => r.source);
     }
 
     getDistinctTags(): string[] {
-        const tagRows = this.db.prepare(`SELECT tags FROM observations WHERE tags != ''`).all() as Array<{ tags: string }>;
+        const tagRows = this.queryAll<{ tags: string }>(`SELECT tags FROM observations WHERE tags != ''`);
         const tagSet = new Set<string>();
         for (const row of tagRows) {
             for (const tag of row.tags.split(',').map(t => t.trim()).filter(t => t.length > 0)) {
@@ -629,9 +594,32 @@ export class RecallDatabase {
     // ─── Export ───────────────────────────────────────────────────────────
 
     exportAll(): { observations: Observation[]; fileIndex: FileIndexEntry[] } {
-        const observations = this.db.prepare(`SELECT * FROM observations ORDER BY created_at DESC`).all() as Observation[];
-        const fileIndex = this.db.prepare(`SELECT * FROM file_index ORDER BY file_path`).all() as FileIndexEntry[];
+        const observations = this.queryAll<Observation>(`SELECT * FROM observations ORDER BY created_at DESC`);
+        const fileIndex = this.queryAll<FileIndexEntry>(`SELECT * FROM file_index ORDER BY file_path`);
         return { observations, fileIndex };
+    }
+
+    // ─── Token Stats ─────────────────────────────────────────────────────
+
+    getTokenStats(): { search_hits: number; file_index_hits: number; tokens_used: number; tokens_without_recall: number } | undefined {
+        return this.queryOne<{ search_hits: number; file_index_hits: number; tokens_used: number; tokens_without_recall: number }>(
+            `SELECT search_hits, file_index_hits, tokens_used, tokens_without_recall FROM token_stats WHERE id = 1`
+        );
+    }
+
+    upsertTokenStats(stats: { search_hits: number; file_index_hits: number; tokens_used: number; tokens_without_recall: number }): void {
+        this.runAndPersist(
+            `INSERT INTO token_stats (id, search_hits, file_index_hits, tokens_used, tokens_without_recall, last_updated)
+             VALUES (1, ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(id) DO UPDATE SET
+                search_hits = ?,
+                file_index_hits = ?,
+                tokens_used = ?,
+                tokens_without_recall = ?,
+                last_updated = datetime('now')`,
+            [stats.search_hits, stats.file_index_hits, stats.tokens_used, stats.tokens_without_recall,
+             stats.search_hits, stats.file_index_hits, stats.tokens_used, stats.tokens_without_recall]
+        );
     }
 
     // ─── Lifecycle ───────────────────────────────────────────────────────
@@ -641,6 +629,7 @@ export class RecallDatabase {
     }
 
     close(): void {
+        this.persist();
         this.db.close();
     }
 }

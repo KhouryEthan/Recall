@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
 import { RecallDatabase } from '../db';
 import { hybridSearch } from '../search';
+import { TokenTracker } from '../tokenTracker';
 
 export class RecallSearchTool implements vscode.LanguageModelTool<{ query: string; tags?: string; limit?: number; project?: string }> {
 
-    constructor(private db: RecallDatabase) {}
+    constructor(private db: RecallDatabase, private tokenTracker?: TokenTracker) {}
 
     async invoke(
         options: vscode.LanguageModelToolInvocationOptions<{ query: string; tags?: string; limit?: number; project?: string }>,
@@ -53,6 +54,8 @@ export class RecallSearchTool implements vscode.LanguageModelTool<{ query: strin
             if (hasPending) { output += `⏳ = pending (AI-captured, unverified — read the code before acting on it)\n`; }
             if (hasXProject) { output += `[from: X] = cross-project result — check applicability before using\n`; }
         }
+
+        this.tokenTracker?.recordSearchHit(output);
 
         return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(output)

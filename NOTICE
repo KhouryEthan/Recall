@@ -7,7 +7,8 @@ Licensed under the Apache License, Version 2.0.
 
 Third-party components:
 
-- better-sqlite3 (MIT License) — https://github.com/WiseLibs/better-sqlite3
+- fts5-sql-bundle (MIT License) — WebAssembly SQLite with FTS5
+- sql.js (MIT License) — https://github.com/sql-js/sql.js
 - @xenova/transformers (Apache-2.0 License) — https://github.com/xenova/transformers.js
 - all-MiniLM-L6-v2 model (Apache-2.0 License) — https://huggingface.co/Xenova/all-MiniLM-L6-v2
   Original model by Microsoft, ONNX conversion by Xenova/Hugging Face.
