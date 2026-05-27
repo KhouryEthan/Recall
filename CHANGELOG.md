@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.3.0] - 2026-05-26
+
+### Fixed
+- **Extension broken on most platforms (CRITICAL)**: `better-sqlite3` native binaries caused NODE_MODULE_VERSION mismatch on Windows (Electron ABI 140 vs Node ABI 115), glibc errors on older Linux/WSL, and failures in Remote SSH. Replaced `better-sqlite3` entirely with `fts5-sql-bundle` (SQLite compiled to WebAssembly). One universal VSIX now works on every platform, architecture, and VS Code version.
+- **GitHub Actions Node.js 20 deprecation**: All actions bumped from `@v4` to `@v6`. Node version bumped to 22.
+
+### Added
+- **Token savings tracker**: Built-in metrics showing how many tokens Recall saves per session and all-time. Visible in the dashboard and via `Recall: Show Database Statistics`.
+- **Unit tests**: vitest test suite with 36 tests covering database CRUD, FTS search, embeddings, file index, persistence, filtering, token estimation, and more.
+- **ESLint flat config**: Migrated from legacy eslintrc to `eslint.config.mjs` with typescript-eslint.
+- **Benchmark harness**: Reproducible token-estimation tool under `benchmarks/` with documented methodology.
+- **Documentation**: Architecture overview, privacy model, security model, troubleshooting guide, and screenshot checklist under `docs/`.
+- **Roadmap**: `ROADMAP.md` with short-term milestones for v1.3-v1.5.
+- **Issue templates**: Bug report, feature request, and memory quality templates.
+
+### Changed
+- **SQLite engine**: Migrated from `better-sqlite3` (native C++ addon) to `fts5-sql-bundle` (WebAssembly). Eliminates all platform-specific packaging. Single universal VSIX replaces the six-target build matrix.
+- **CI simplified**: One build job instead of six. Quality gate (compile, lint, test, bundle) runs on every push and PR.
+- **Embeddings fail closed**: If the bundled model is missing, initialization throws instead of silently downloading a replacement.
+- **Extracted modules**: `embeddingBlob.ts` and `ftsQuery.ts` pulled out of `db.ts` into standalone tested modules.
+- **Node version**: Build requires Node 22+ (matches VS Code's internal runtime).
+- **README rewritten**: Removed AI-generated formatting. Added token savings claim with methodology link.
+
 ## [1.2.0] - 2026-05-25
 
 ### Fixed

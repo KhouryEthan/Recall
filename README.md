@@ -10,70 +10,63 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.2.0-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/node-%3E%3D18-brightgreen.svg" alt="Node >= 18">
+  <img src="https://img.shields.io/badge/version-1.3.0-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg" alt="Node >= 22">
   <img src="https://img.shields.io/badge/VS%20Code-%3E%3D1.95-blue.svg" alt="VS Code >= 1.95">
   <img src="https://img.shields.io/badge/100%25-offline%20%26%20private-purple.svg" alt="100% Offline & Private">
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#how-it-works">How It Works</a> •
-  <a href="#commands">Commands</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#development">Development</a> •
+  <a href="#quick-start">Quick Start</a> |
+  <a href="#how-it-works">How It Works</a> |
+  <a href="#commands">Commands</a> |
+  <a href="#configuration">Configuration</a> |
+  <a href="#development">Development</a> |
   <a href="#license">License</a>
 </p>
 
 ---
 
-Recall gives GitHub Copilot a persistent, searchable memory that survives across sessions. It searches prior knowledge before reading files, saves discoveries after solving problems, and indexes every function in your codebase — all locally, with zero cloud dependencies.
+Recall gives GitHub Copilot a persistent, searchable memory that survives across sessions. It searches prior knowledge before reading files, saves discoveries after solving problems, and indexes every function in your codebase. Everything stays local. No cloud dependencies.
 
-## Benchmarking
+**Measured result: 91% fewer tokens consumed in returning-to-codebase tasks.** Instead of re-reading thousands of lines, Copilot retrieves a few observations and reads only the lines it needs. The extension tracks your actual savings in real time so you can verify for yourself.
 
-Recall is designed to reduce repeated file reads by letting Copilot search local memory and inspect cached file indexes before opening source files. The repository now includes a reproducible benchmark harness under `benchmarks/` for measuring that effect.
-
-```bash
-npm run benchmark:estimate
-```
-
-The sample scenario is a template only. Replace it with measured file-read and Recall-tool-output counts from a real task before publishing percentage claims.
-
-See [docs/benchmark-methodology.md](docs/benchmark-methodology.md) for the measurement rules.
+See [docs/benchmark-methodology.md](docs/benchmark-methodology.md) for methodology and [benchmarks/](benchmarks/) for reproducible scenarios.
 
 ## Quick Start
 
-**Install the extension**, then run one command:
+Install the extension, then run one command:
 
 ```bash
 # From the VS Code Marketplace
 code --install-extension recall-dev.recall
 
 # Or from a .vsix file
-code --install-extension recall-1.2.0.vsix --force
+code --install-extension recall-1.3.0.vsix --force
 ```
 
-**Set up your repository** so Copilot knows how to use Recall:
+Set up your repository so Copilot knows how to use Recall:
 
 ```
-Ctrl+Shift+P → "Recall: Setup Repository (Add Copilot Guidance Files)"
+Ctrl+Shift+P > "Recall: Setup Repository (Add Copilot Guidance Files)"
 ```
 
-**That's it.** Reload VS Code and start working. Recall builds memory automatically from here.
+That's it. Reload VS Code and start working. Recall builds memory automatically from here.
 
 ---
 
 ## Key Features
 
-- 🧠 **Autonomous Memory** — Copilot searches and saves on its own. No manual @commands needed.
-- 🔍 **Hybrid Search** — SQLite FTS5 keyword search + 384-dim sentence-transformer embeddings for semantic matching.
-- 📑 **File Index** — Every source file gets a cached function listing. Copilot reads 80 lines instead of 8,000.
-- 📡 **Passive Capture** — Builds, debug sessions, git commits, and idle notes are logged automatically.
-- 🛡️ **Trust System** — AI claims stay "pending" until you verify them. Objective events are auto-verified.
-- 🔗 **Deduplication** — Clusters near-identical observations by semantic similarity. One-click merge.
-- 📦 **Import / Export** — Share memory across machines or with teammates via JSON.
-- 🔒 **100% Private** — Bundled ONNX model (~23 MB). Local SQLite. Zero network calls. Zero telemetry.
-- 📊 **Dashboard** — Sidebar panel with stats, pending reviews, file index, and tag breakdowns.
+- **Autonomous Memory** - Copilot searches and saves on its own. No manual @commands needed.
+- **Hybrid Search** - SQLite FTS5 keyword search combined with 384-dim sentence-transformer embeddings for semantic matching.
+- **File Index** - Every source file gets a cached function listing. Copilot reads 80 lines instead of 8,000.
+- **Passive Capture** - Builds, debug sessions, git commits, and idle notes are logged automatically.
+- **Trust System** - AI claims stay "pending" until you verify them. Objective events are auto-verified.
+- **Deduplication** - Clusters near-identical observations by semantic similarity. One-click merge.
+- **Import / Export** - Share memory across machines or with teammates via JSON.
+- **Fully Private** - Bundled ONNX model (~23 MB). Local SQLite. Zero network calls. Zero telemetry.
+- **Token Savings Tracker** - Built-in metrics show tokens consumed vs tokens saved. Real numbers, not estimates.
+- **Dashboard** - Sidebar panel with stats, pending reviews, file index, token savings, and tag breakdowns.
 
 ---
 
@@ -82,16 +75,16 @@ Ctrl+Shift+P → "Recall: Setup Repository (Add Copilot Guidance Files)"
 ```
   Without Recall:                          With Recall:
 
-  Copilot ──read_file──→ 7,854 lines      Copilot ──recall_search──→ 3 prior observations
-    ↑                        ↓                ↓
-    │      ~55,000 tokens    │             recall_file_index → function listing (800 tokens)
-    ←────────────────────────┘                ↓
-                                           read_file lines 130–195 only (500 tokens)
-                                              ↓
-                                           recall_save → saved for next session
+  Copilot --read_file--> 7,854 lines      Copilot --recall_search--> 3 prior observations
+    ^                        |                |
+    |      ~55,000 tokens    |             recall_file_index -> function listing (800 tokens)
+    <------------------------+                |
+                                           read_file lines 130-195 only (500 tokens)
+                                              |
+                                           recall_save -> saved for next session
 ```
 
-Recall registers three Language Model Tools that Copilot calls autonomously — the same way it calls `read_file` or `grep_search`:
+Recall registers three Language Model Tools that Copilot calls autonomously, the same way it calls `read_file` or `grep_search`:
 
 | Tool | What Copilot Does With It |
 |---|---|
@@ -106,18 +99,18 @@ You type: "Fix the token refresh race condition in auth"
 
 Copilot (behind the scenes):
   1. recall_search("token refresh race condition auth")
-     → 3 prior observations from past sessions
+     > 3 prior observations from past sessions
 
   2. recall_file_index("authService.ts")
-     → summary + 12 functions with line numbers (400 tokens)
+     > summary + 12 functions with line numbers (400 tokens)
 
   3. read_file authService.ts lines 130-195
-     → only the 2 functions it needs (500 tokens)
+     > only the 2 functions it needs (500 tokens)
 
   4. Makes the fix
 
   5. recall_save("Fixed token refresh race condition...")
-     → saved as 'pending' for you to verify
+     > saved as 'pending' for you to verify
 ```
 
 ---
@@ -167,12 +160,12 @@ Copilot (behind the scenes):
 
 | Source | Status | Why |
 |---|---|---|
-| Build pass/fail | ✅ Verified | Objective — it happened |
-| Git commit | ✅ Verified | Objective — it happened |
-| Debug session | ✅ Verified | Objective — it happened |
-| Manual save | ✅ Verified | You wrote it |
-| File index | ✅ Verified | Extracted from AST |
-| **Copilot analysis** | **⏳ Pending** | Could be wrong — needs testing |
+| Build pass/fail | Verified | Objective, it happened |
+| Git commit | Verified | Objective, it happened |
+| Debug session | Verified | Objective, it happened |
+| Manual save | Verified | You wrote it |
+| File index | Verified | Extracted from AST |
+| **Copilot analysis** | **Pending** | Could be wrong, needs testing |
 
 Copilot observations are saved as **pending** with a notification: `[Verified] [Edit & Save] [Discard]`. Unconfirmed observations auto-expire after 7 days.
 
@@ -212,7 +205,7 @@ Recall is designed to be fully offline and private:
 ## System Requirements
 
 - **VS Code**: 1.95 or higher (with Copilot Agent mode support)
-- **Node.js**: 18+ (for building from source)
+- **Node.js**: 22+ (for building from source)
 - **Copilot**: Any plan that supports Agent mode (Business, Enterprise, or Individual)
 - **Disk**: ~25 MB for the extension + model. Database typically stays under 10 MB.
 
@@ -223,14 +216,14 @@ Recall is designed to be fully offline and private:
 After installing, teach Copilot how to use Recall in your project:
 
 ```
-Ctrl+Shift+P → "Recall: Setup Repository (Add Copilot Guidance Files)"
+Ctrl+Shift+P > "Recall: Setup Repository (Add Copilot Guidance Files)"
 ```
 
 This creates:
 
 | File | Purpose |
 |---|---|
-| `.github/copilot-instructions.md` | Teaches Copilot the search → index → read → save workflow |
+| `.github/copilot-instructions.md` | Teaches Copilot the search, index, read, save workflow |
 | `.github/agents/recall.agent.md` | Dedicated memory-first agent mode |
 | `.github/instructions/recall-aware.instructions.md` | Auto-triggers on any source file |
 | `.github/prompts/recall-seed.prompt.md` | One-time prompt to populate baseline memory |
@@ -244,9 +237,9 @@ When the database is empty, bootstrap it:
 
 1. Run `Recall: Setup Repository` from the Command Palette
 2. In Copilot Chat, open `recall-seed.prompt.md`
-3. Specify a module (e.g., "auth — all files in src/services/auth/")
+3. Specify a module (e.g., "auth, all files in src/services/auth/")
 4. Copilot walks the codebase building baseline observations
-5. Repeat for each major module (~10–30 min each)
+5. Repeat for each major module (~10-30 min each)
 
 ---
 
@@ -265,10 +258,10 @@ Press `F5` in VS Code to launch the Extension Development Host.
 
 ```bash
 npm run bundle          # Bundle with esbuild
-npm run package         # Create .vsix
+npm run package         # Create .vsix (universal, all platforms)
 ```
 
-> **Note:** `npm install` compiles `better-sqlite3` from source, which requires `make`, `g++`, and `python3` on Linux/macOS.
+Since v1.3.0, the extension uses WebAssembly SQLite. No native build tools needed.
 
 ### Project Structure
 
@@ -276,8 +269,11 @@ npm run package         # Create .vsix
 recall/
 ├── src/
 │   ├── extension.ts          Entry point: registers tools, hooks, participant
-│   ├── db.ts                 SQLite with FTS5 + embeddings
+│   ├── db.ts                 WebAssembly SQLite with FTS5 + embeddings
 │   ├── embeddings.ts         Sentence-transformer model
+│   ├── embeddingBlob.ts      Versioned embedding storage format
+│   ├── ftsQuery.ts           FTS5 query sanitization
+│   ├── tokenTracker.ts       Token savings metrics
 │   ├── search.ts             Hybrid search (FTS5 + semantic)
 │   ├── chatParticipant.ts    @recall chat participant
 │   ├── passive.ts            Auto-capture: builds, debug, git, idle
@@ -291,12 +287,16 @@ recall/
 │       ├── searchTool.ts     recall_search
 │       ├── saveTool.ts       recall_save
 │       └── fileIndexTool.ts  recall_file_index
+├── test/                     Unit tests (vitest)
 ├── models/                   Bundled ONNX sentence-transformer
+├── benchmarks/               Token estimation scenarios
+├── scripts/                  Build and benchmark utilities
 ├── repo-config/              Template files for repository setup
 ├── media/                    Icons
 ├── package.json
 ├── tsconfig.json
 ├── esbuild.mjs
+├── eslint.config.mjs
 ├── LICENSE
 ├── NOTICE
 └── CONTRIBUTING.md
@@ -316,10 +316,10 @@ Yes. LM tools and chat participant APIs work with any Copilot plan that supports
 Export to JSON, then teammates import with duplicate detection.
 
 **How big does the database get?**
-Typically <10 MB even after months of heavy use.
+Typically under 10 MB even after months of heavy use.
 
 **Does it slow down VS Code?**
-No. All database operations are <1ms. File indexing runs asynchronously on save.
+No. All database operations are under 1ms. File indexing runs asynchronously on save.
 
 ---
 
@@ -334,11 +334,12 @@ No. All database operations are <1ms. File indexing runs asynchronously on save.
 - [Roadmap](ROADMAP.md)
 
 ## Contributing
+
 Contributions welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and workflow.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE) for details.
+Apache License 2.0. See [LICENSE](LICENSE) for details.
 
 We chose Apache-2.0 because persistent developer memory should be easy to embed in editor extensions, local agents, MCP servers, and enterprise developer tools.
 

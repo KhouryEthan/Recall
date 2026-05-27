@@ -12,23 +12,25 @@ import { initEmbeddings, embed, isReady } from './embeddings';
 import { setupRepository } from './setupRepository';
 import { deduplicateMemory } from './deduplication';
 import { ContextHints } from './contextHints';
+import { TokenTracker } from './tokenTracker';
 
 let db: RecallDatabase;
 let passiveCapture: PassiveCapture;
 let fileIndexBuilder: FileIndexBuilder;
 let recallUI: RecallUI;
 let contextHints: ContextHints;
+let tokenTracker: TokenTracker;
 
-export function activate(context: vscode.ExtensionContext): void {
+export async function activate(context: vscode.ExtensionContext): Promise<void> {
     console.log('[Recall] Activating...');
 
     // ─── Initialize Database ─────────────────────────────────────────────
     const customPath = vscode.workspace.getConfiguration('recall').get<string>('databasePath', '');
     try {
-        db = new RecallDatabase(customPath || undefined);
+        db = await RecallDatabase.create(customPath || undefined);
         console.log(`[Recall] Database opened at: ${db.getDbPath()}`);
     } catch (err) {
-        vscode.window.showErrorMessage(`Recall: Failed to open database — ${err}`);
+        vscode.window.showErrorMessage(`Recall: Failed to open database - ${err}`);
         console.error('[Recall] Database initialization failed:', err);
         return;
     }
@@ -40,10 +42,13 @@ export function activate(context: vscode.ExtensionContext): void {
         console.log(`[Recall] Expired ${expired} pending observation(s) older than ${expirationDays} days.`);
     }
 
+    // ─── Token Tracker ──────────────────────────────────────────────────
+    tokenTracker = new TokenTracker(db);
+
     // ─── Register Language Model Tools ───────────────────────────────────
-    const searchTool = new RecallSearchTool(db);
+    const searchTool = new RecallSearchTool(db, tokenTracker);
     const saveTool = new RecallSaveTool(db);
-    const fileIndexTool = new RecallFileIndexTool(db);
+    const fileIndexTool = new RecallFileIndexTool(db, tokenTracker);
 
     // Log available tools before registration for diagnostics
     console.log(`[Recall] Available LM tools before registration: ${vscode.lm.tools.map(t => t.name).join(', ') || '(none)'}`);
@@ -89,6 +94,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // ─── UI Components ───────────────────────────────────────────────────
     recallUI = new RecallUI(db, fileIndexBuilder, saveTool);
+    recallUI.setTokenTracker(tokenTracker);
     recallUI.activate(context);
     console.log('[Recall] UI components activated.');
 
@@ -225,6 +231,9 @@ function showWelcomeMessage(): void {
 export function deactivate(): void {
     console.log('[Recall] Deactivating...');
 
+    if (tokenTracker) {
+        tokenTracker.persistSession();
+    }
     if (passiveCapture) {
         passiveCapture.dispose();
     }

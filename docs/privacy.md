@@ -4,7 +4,7 @@ Recall is local-only by default.
 
 ## What Stays Local
 
-- Observations and file index data are stored in a SQLite database on the user's machine.
+- Observations and file index data are stored in a local SQLite database (WebAssembly, no native code) on the user's machine.
 - Semantic embeddings are generated with the ONNX model bundled under `models/`.
 - File summaries are generated with deterministic local heuristics from file headers and symbols.
 - Recall does not send telemetry.

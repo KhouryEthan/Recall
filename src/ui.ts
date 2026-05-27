@@ -5,6 +5,7 @@ import { RecallSaveTool } from './tools/saveTool';
 
 import { RecallSidebarProvider } from './sidebarProvider';
 import { embedObservation } from './embeddings';
+import { TokenTracker } from './tokenTracker';
 
 /**
  * UI components: quick-save keybinding, status bar, commands, dashboard webview.
@@ -12,6 +13,7 @@ import { embedObservation } from './embeddings';
 export class RecallUI {
     private statusBarItem: vscode.StatusBarItem;
     private sidebarProvider?: RecallSidebarProvider;
+    private tokenTracker?: TokenTracker;
 
     constructor(
         private db: RecallDatabase,
@@ -45,6 +47,10 @@ export class RecallUI {
 
     setSidebarProvider(provider: RecallSidebarProvider): void {
         this.sidebarProvider = provider;
+    }
+
+    setTokenTracker(tracker: TokenTracker): void {
+        this.tokenTracker = tracker;
     }
 
     // ─── Quick Save (Ctrl+Shift+M) ───────────────────────────────────────
@@ -160,7 +166,7 @@ export class RecallUI {
         const sizeKB = Math.round(stats.dbSizeBytes / 1024);
 
         const lines = [
-            `📊 Recall Database Statistics`,
+            `Recall Database Statistics`,
             ``,
             `Observations: ${stats.totalObservations} (${stats.verifiedObservations} verified, ${stats.pendingObservations} pending)`,
             `Files indexed: ${stats.totalFilesIndexed}`,
@@ -171,6 +177,27 @@ export class RecallUI {
 
         if (stats.topTags.length > 0) {
             lines.push(``, `Top tags: ${stats.topTags.map(t => `${t.tag}(${t.count})`).join(', ')}`);
+        }
+
+        if (this.tokenTracker) {
+            const session = this.tokenTracker.getSessionStats();
+            const allTime = this.tokenTracker.getAllTimeStats();
+            lines.push(
+                ``,
+                `--- Token Savings ---`,
+                ``,
+                `This session:`,
+                `  Tool calls: ${session.searchHits} searches, ${session.fileIndexHits} file lookups`,
+                `  Tokens used: ${session.tokensUsed.toLocaleString()}`,
+                `  Tokens without Recall: ${session.tokensWithoutRecall.toLocaleString()}`,
+                `  Saved: ${session.tokensSaved.toLocaleString()} (${session.reductionPercent}% reduction)`,
+                ``,
+                `All time:`,
+                `  Tool calls: ${allTime.searchHits} searches, ${allTime.fileIndexHits} file lookups`,
+                `  Tokens used: ${allTime.tokensUsed.toLocaleString()}`,
+                `  Tokens without Recall: ${allTime.tokensWithoutRecall.toLocaleString()}`,
+                `  Saved: ${allTime.tokensSaved.toLocaleString()} (${allTime.reductionPercent}% reduction)`,
+            );
         }
 
         vscode.window.showInformationMessage(lines.join('\n'), { modal: true });

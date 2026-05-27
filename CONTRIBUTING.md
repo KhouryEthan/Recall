@@ -17,7 +17,7 @@ Thank you for your interest in contributing to Recall! This document explains ho
    npm install
    ```
 
-   This compiles native modules (`better-sqlite3`) from source. You need `make`, `g++`, and `python3` on Linux/macOS.
+   No native build tools required. All dependencies are pure JavaScript or WebAssembly.
 
 3. **Compile TypeScript:**
 
@@ -49,21 +49,10 @@ Thank you for your interest in contributing to Recall! This document explains ho
 
 ```bash
 npm run bundle        # Bundle with esbuild
-npm run package       # Create .vsix for the current platform
+npm run package       # Create .vsix (universal, works on all platforms)
 ```
 
-### Cross-platform VSIX packaging
-
-Native modules (`better-sqlite3`, `onnxruntime-node`) ship platform-specific binaries. When publishing for multiple OS/arch combinations, build one VSIX per target:
-
-```bash
-npm run package:win32-x64
-npm run package:linux-x64
-npm run package:darwin-arm64
-# ... see package.json for all targets
-```
-
-Each command runs `vsce package --target <platform>`, which installs the correct native binaries for that target before packaging. GitHub Actions (`.github/workflows/package.yml`) builds all targets on release.
+Since v1.3.0, the extension uses `fts5-sql-bundle` (SQLite compiled to WebAssembly with FTS5) instead of `better-sqlite3`. This produces a single universal VSIX that works on every OS, architecture, and VS Code version without native binaries.
 
 ## Code Style
 

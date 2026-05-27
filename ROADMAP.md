@@ -2,12 +2,13 @@
 
 This roadmap is intentionally short and practical. Recall is early, and the next milestones focus on trust, reproducibility, and memory quality.
 
-## v1.3 Trust And Reproducibility
+## v1.3 Trust And Reproducibility (done)
 
-- Keep local-only behavior fail-closed.
-- Add deterministic unit tests for search, embedding storage, import/export, and trust transitions.
-- Publish measured benchmark scenarios under `benchmarks/`.
-- Add screenshots and a short demo GIF to the README.
+- Local-only behavior, fail-closed.
+- Unit/integration tests for database, FTS, embeddings, file index, import/export.
+- Benchmark harness with reproducible scenarios.
+- Token savings tracker with real-time metrics.
+- Migrated to WebAssembly SQLite (universal cross-platform).
 
 ## v1.4 Memory Quality
 
