@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.3.1] - 2026-05-27
+
+### Fixed
+
+- **Sidebar clicks not registering**: Refresh button, project selector, and observation action buttons were silently dropped. VS Code webview CSP blocks inline `onclick=` handlers. Replaced all inline handlers with `data-action` delegation 
+- **Dashboard cannot filter by project**: Added a project selector to the dashboard
+- **Garbage file summaries**: License banners, copyright lines, and `#include` directives were used as summaries. Replaced with symbol-only summaries now derived from the DocumentSymbolProvider output.
+- **Dashboard search input loses focus**: Every keystroke triggered a full page rebuild. Search now fires only on Enter or clicking the Search button.
+
+### Changed
+
+- File Summary generation is now purely symbol-derived. May circle back and rethink a more valuable thing to include here in the future.
+
+### Added
+
+- Project filter in the full dashboard.
+- Search button in the observations filter bar.
+- Option to clean up all File indexes.
+- Option to vacuum the DB clearing unused entries in the db.
+
 ## [1.3.0] - 2026-05-26
 
 ### Fixed

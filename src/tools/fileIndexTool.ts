@@ -25,7 +25,9 @@ export class RecallFileIndexTool implements vscode.LanguageModelTool<{ query: st
             return new vscode.LanguageModelToolResult([
                 new vscode.LanguageModelTextPart(
                     `No file index entry found for "${query}". ` +
-                    `This file has not been indexed yet. Read the file normally — it will be indexed on the next save.`
+                    `Try the full filename including extension (e.g. "${query}.ts") or a path fragment ` +
+                    `(e.g. "src/auth/${query}"). If the file exists but is unindexed, read it normally — ` +
+                    `it will be indexed on the next save.`
                 )
             ]);
         }

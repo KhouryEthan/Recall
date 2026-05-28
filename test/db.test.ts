@@ -198,6 +198,38 @@ describe('RecallDatabase', () => {
             expect(results.length).toBe(1);
         });
 
+        it('looks up file by basename without extension', () => {
+            db.upsertFileIndex('/project/src/avi/nav_recplay.cpp', 'replay', [], 100);
+            db.upsertFileIndex('/project/src/avi/nav_recplay.h', 'header', [], 20);
+
+            const results = db.lookupFileIndex('nav_recplay');
+            const paths = results.map(r => r.file_path).sort();
+            expect(paths).toContain('/project/src/avi/nav_recplay.cpp');
+            expect(paths).toContain('/project/src/avi/nav_recplay.h');
+        });
+
+        it('looks up file by exact basename with extension', () => {
+            db.upsertFileIndex('/project/src/foo/bar.ts', 's', [], 5);
+            db.upsertFileIndex('/project/src/baz/bar.ts', 's', [], 5);
+
+            const results = db.lookupFileIndex('bar.ts');
+            expect(results.length).toBe(2);
+        });
+
+        it('looks up file using Windows-style path query', () => {
+            db.upsertFileIndex('C:/project/src/auth/service.ts', 'Auth service', [], 100);
+
+            const results = db.lookupFileIndex('auth\\service.ts');
+            expect(results.length).toBe(1);
+        });
+
+        it('returns empty when no match exists', () => {
+            db.upsertFileIndex('/project/src/foo.ts', '', [], 10);
+
+            const results = db.lookupFileIndex('totally_made_up_filename_that_should_not_match');
+            expect(results.length).toBe(0);
+        });
+
         it('searches symbols across files', () => {
             db.upsertFileIndex('/a.ts', '', [
                 { name: 'getToken', type: 'function', line: 5, brief: '' },

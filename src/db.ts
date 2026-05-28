@@ -405,13 +405,56 @@ export class RecallDatabase {
     }
 
     lookupFileIndex(query: string): FileIndexEntry[] {
+        const raw = (query || '').trim();
+        if (!raw) { return []; }
+
+        // Normalize: strip leading ./, drive letters, and quotes; collapse slashes.
+        const normalized = raw
+            .replace(/^["']|["']$/g, '')
+            .replace(/^\.\/+/, '')
+            .replace(/\\/g, '/');
+
+        // Step 1 — exact path match (rare but cheapest).
         const exact = this.queryAll<FileIndexEntry>(
-            `SELECT * FROM file_index WHERE file_path = ? OR file_path LIKE ?`,
-            [query, `%${query}`]
+            `SELECT * FROM file_index WHERE file_path = ? OR REPLACE(file_path, '\\', '/') = ?`,
+            [raw, normalized]
         );
         if (exact.length > 0) { return exact; }
 
-        const sanitized = sanitizeFtsQuery(query);
+        // Step 2 — try basename-style matches in a deterministic order.
+        // We normalize stored paths to forward slashes for comparison so this works
+        // regardless of whether the file was indexed on Windows or POSIX.
+        const hasExt = /\.[A-Za-z0-9]+$/.test(normalized);
+        const patterns: string[] = [];
+
+        // Path ends with /<query> or /<query>.* (covers exact basename + basename-without-ext)
+        patterns.push(`%/${normalized}`);
+        if (!hasExt) {
+            patterns.push(`%/${normalized}.%`);
+        }
+        // Substring fallback (catches nested matches, partial names, etc.)
+        patterns.push(`%${normalized}%`);
+
+        const seen = new Set<number>();
+        const ordered: FileIndexEntry[] = [];
+        for (const pattern of patterns) {
+            const rows = this.queryAll<FileIndexEntry>(
+                `SELECT * FROM file_index WHERE REPLACE(file_path, '\\', '/') LIKE ? LIMIT 25`,
+                [pattern]
+            );
+            for (const row of rows) {
+                if (!seen.has(row.id)) {
+                    seen.add(row.id);
+                    ordered.push(row);
+                }
+            }
+            // Stop early if we already have a tight match.
+            if (ordered.length > 0 && pattern !== `%${normalized}%`) { break; }
+        }
+        if (ordered.length > 0) { return ordered.slice(0, 25); }
+
+        // Step 3 — full-text fallback against summary / symbols / path.
+        const sanitized = sanitizeFtsQuery(raw);
         if (!sanitized) { return []; }
 
         try {
@@ -425,7 +468,7 @@ export class RecallDatabase {
         } catch {
             return this.queryAll<FileIndexEntry>(
                 `SELECT * FROM file_index WHERE file_path LIKE ? OR summary LIKE ? OR symbols LIKE ? LIMIT 10`,
-                [`%${query}%`, `%${query}%`, `%${query}%`]
+                [`%${raw}%`, `%${raw}%`, `%${raw}%`]
             );
         }
     }
@@ -568,6 +611,19 @@ export class RecallDatabase {
 
     getAllFileIndexEntries(): FileIndexEntry[] {
         return this.queryAll<FileIndexEntry>(`SELECT * FROM file_index ORDER BY file_path`);
+    }
+
+    clearFileIndex(): number {
+        const count = this.queryOne<{ c: number }>(`SELECT COUNT(*) as c FROM file_index`)!.c;
+        this.db.run(`DELETE FROM file_index`);
+        this.db.run(`INSERT INTO file_index_fts(file_index_fts) VALUES('rebuild')`);
+        this.persist();
+        return count;
+    }
+
+    vacuum(): void {
+        this.db.run(`VACUUM`);
+        this.persist();
     }
 
     updateObservation(id: number, content: string, tags: string): void {

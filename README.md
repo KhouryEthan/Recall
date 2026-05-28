@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.3.0-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.1-green.svg" alt="Version">
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg" alt="Node >= 22">
   <img src="https://img.shields.io/badge/VS%20Code-%3E%3D1.95-blue.svg" alt="VS Code >= 1.95">
   <img src="https://img.shields.io/badge/100%25-offline%20%26%20private-purple.svg" alt="100% Offline & Private">
@@ -52,7 +52,7 @@ Install the extension, then run one command:
 code --install-extension recall-dev.recall
 
 # Or from a .vsix file
-code --install-extension recall-1.3.0.vsix --force
+code --install-extension recall-1.3.1.vsix --force
 ```
 
 Set up your repository so Copilot knows how to use Recall:
