@@ -1,9 +1,14 @@
 {
-  "name": "recall",
+  "name": "recall-persistent-memory",
   "displayName": "Recall - Persistent Developer Memory",
   "description": "Persistent, searchable developer memory that Copilot uses autonomously. Hybrid keyword + semantic search, automatic file indexing (30+ languages), passive event capture, deduplication, import/export, and a bundled offline AI model. 100% local and private.",
   "version": "1.3.1",
-  "publisher": "recall-dev",
+  "publisher": "ethankhoury",
+  "author": {
+    "name": "Ethan Khoury",
+    "email": "ethankhoury2000@gmail.com",
+    "url": "https://github.com/KhouryEthan"
+  },
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
