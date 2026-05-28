@@ -15,6 +15,7 @@ interface WorkspaceProject {
 export class RecallSidebarProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'recall.dashboardView';
     private _view?: vscode.WebviewView;
+    private _state: { tab: string; filter: DashboardFilter } = { tab: 'overview', filter: {} };
 
     constructor(
         private readonly _extensionUri: vscode.Uri,
@@ -28,11 +29,16 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
     ): void {
         this._view = webviewView;
         webviewView.webview.options = { enableScripts: true };
-        webviewView.webview.html = this.getHtml();
+        webviewView.webview.html = this.getHtml(this._state.tab, this._state.filter);
 
         webviewView.webview.onDidReceiveMessage(async (message) => {
-            const tab: string = message.tab || 'overview';
-            const filter: DashboardFilter = message.filter || {};
+            // Persist incoming state so refreshes from elsewhere keep the user's view
+            if (typeof message.tab === 'string') { this._state.tab = message.tab; }
+            if (message.filter && typeof message.filter === 'object') {
+                this._state.filter = message.filter;
+            }
+            const tab = this._state.tab;
+            const filter = this._state.filter;
 
             switch (message.command) {
                 case 'refresh':
@@ -75,7 +81,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
 
     public refresh(): void {
         if (this._view) {
-            this._view.webview.html = this.getHtml();
+            this._view.webview.html = this.getHtml(this._state.tab, this._state.filter);
         }
     }
 
@@ -152,7 +158,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
             ),
         ].join('');
         const projectBar = allProjectNames.length > 0
-            ? `<div class="project-bar"><select id="proj" class="project-sel" onchange="applyProject(this.value)">${projectOptions}</select></div>`
+            ? `<div class="project-bar"><select id="proj" class="project-sel" data-action="filter-project">${projectOptions}</select></div>`
             : '';
 
         // ─── Tab content ──────────────────────────────────────────────────────
@@ -160,7 +166,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
 
         if (activeTab === 'overview') {
             const tagBadges = stats.topTags.slice(0, 12).map(t =>
-                `<span class="tag" onclick="switchTab('observations', {tag:'${esc(t.tag)}'${filter.project ? `,project:'${esc(filter.project)}'` : ''}})">${esc(t.tag)}<span class="tag-ct">${t.count}</span></span>`
+                `<span class="tag" data-action="filter-tag" data-tag="${esc(t.tag)}">${esc(t.tag)}<span class="tag-ct">${t.count}</span></span>`
             ).join('');
 
             // Per-project observation counts
@@ -174,7 +180,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
                         fe.file_path.toLowerCase().includes(`\\${p.toLowerCase()}\\`)
                     ).length;
                     return `
-                        <div class="proj-card" onclick="applyProject('${esc(p)}')">
+                        <div class="proj-card" data-action="filter-project" data-project="${esc(p)}">
                             <div class="proj-name">${esc(p)}</div>
                             <div class="proj-stats">${count} obs · ${files} files</div>
                         </div>`;
@@ -192,15 +198,15 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
 
             tabContent = `
                 <div class="metrics">
-                    <div class="metric" onclick="switchTab('observations')">
+                    <div class="metric" data-action="tab" data-tab="observations">
                         <span class="metric-num">${stats.totalObservations}</span>
                         <span class="metric-label">observations</span>
                     </div>
-                    <div class="metric" onclick="switchTab('pending')">
+                    <div class="metric" data-action="tab" data-tab="pending">
                         <span class="metric-num ${stats.pendingObservations > 0 ? 'warn' : ''}">${stats.pendingObservations}</span>
                         <span class="metric-label">pending</span>
                     </div>
-                    <div class="metric" onclick="switchTab('files')">
+                    <div class="metric" data-action="tab" data-tab="files">
                         <span class="metric-num">${stats.totalFilesIndexed}</span>
                         <span class="metric-label">files</span>
                     </div>
@@ -230,7 +236,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
                     observations.map(obs => this.renderObservationCard(obs)).join('');
             }
         } else if (activeTab === 'files') {
-            const cleanupBtn = `<button class="btn btn-warn" style="margin-bottom:8px;width:100%" onclick="send('cleanupArtifacts')">Clean up build artifacts</button>`;
+            const cleanupBtn = `<button class="btn btn-warn" style="margin-bottom:8px;width:100%" data-action="cleanup-artifacts">Clean up build artifacts</button>`;
             if (fileEntries.length === 0) {
                 tabContent = cleanupBtn + `<p class="muted centered">No files indexed.</p>`;
             } else {
@@ -248,7 +254,7 @@ export class RecallSidebarProvider implements vscode.WebviewViewProvider {
                                         <div class="card-title">${esc(fileName)}</div>
                                         ${proj ? `<div class="card-proj">${esc(proj)}</div>` : ''}
                                     </div>
-                                    <button class="icon-btn" onclick="deleteFileEntry(${fe.id})" title="Remove from index">✕</button>
+                                    <button class="icon-btn" data-action="delete-file" data-id="${fe.id}" title="Remove from index">✕</button>
                                 </div>
                                 <div class="card-path">${esc(fe.file_path)}</div>
                                 <div class="card-detail">${fe.line_count} lines · ${symbolCount} symbols · ${fe.last_indexed.split('T')[0] || fe.last_indexed.split(' ')[0] || fe.last_indexed}</div>
@@ -288,9 +294,14 @@ body {
 
 /* ── Top bar ── */
 .topbar {
-    display: flex; justify-content: flex-end; gap: var(--space-xs);
+    display: flex; justify-content: flex-end; align-items: center; gap: var(--space-xs);
     padding: var(--space-sm) var(--space-md);
 }
+.refresh-flash {
+    margin-right: auto; font-size: 9px; opacity: 0; color: var(--vscode-testing-iconPassed);
+    text-transform: uppercase; letter-spacing: 0.5px; transition: opacity 0.15s;
+}
+.refresh-flash.show { opacity: 0.8; }
 .icon-btn {
     background: none; border: none; color: var(--vscode-foreground);
     opacity: 0.45; cursor: pointer; font-size: var(--text-sm); padding: 2px 6px; border-radius: var(--radius);
@@ -456,70 +467,181 @@ body {
 </head>
 <body>
     <div class="topbar">
-        <button class="icon-btn" onclick="send('refresh')" title="Refresh">Refresh</button>
-        <button class="icon-btn" onclick="send('openDashboard')" title="Open full dashboard">Expand</button>
+        <span id="refresh-flash" class="refresh-flash">Refreshed</span>
+        <button class="icon-btn" data-action="refresh" title="Refresh">Refresh</button>
+        <button class="icon-btn" data-action="open-dashboard" title="Open full dashboard">Expand</button>
     </div>
 
     ${projectBar}
 
     <div class="tabs">
-        <div class="tab ${activeTab === 'overview' ? 'active' : ''}" onclick="switchTab('overview')">Overview</div>
-        <div class="tab ${activeTab === 'pending' ? 'active' : ''}" onclick="switchTab('pending')">Pending${stats.pendingObservations > 0 ? `<span class="badge">${stats.pendingObservations}</span>` : ''}</div>
-        <div class="tab ${activeTab === 'observations' ? 'active' : ''}" onclick="switchTab('observations')">All</div>
-        <div class="tab ${activeTab === 'files' ? 'active' : ''}" onclick="switchTab('files')">Files</div>
+        <div class="tab ${activeTab === 'overview' ? 'active' : ''}" data-action="tab" data-tab="overview">Overview</div>
+        <div class="tab ${activeTab === 'pending' ? 'active' : ''}" data-action="tab" data-tab="pending">Pending${stats.pendingObservations > 0 ? `<span class="badge">${stats.pendingObservations}</span>` : ''}</div>
+        <div class="tab ${activeTab === 'observations' ? 'active' : ''}" data-action="tab" data-tab="observations">All</div>
+        <div class="tab ${activeTab === 'files' ? 'active' : ''}" data-action="tab" data-tab="files">Files</div>
     </div>
 
     <div class="content">${tabContent}</div>
 
 <script>
 const vscode = acquireVsCodeApi();
-let currentTab = '${activeTab}';
+let currentTab = ${JSON.stringify(activeTab)};
 let currentFilter = ${JSON.stringify(filter)};
 
-function send(cmd, id) { vscode.postMessage({ command: cmd, id, tab: currentTab, filter: currentFilter }); }
+function post(command, extra) {
+    vscode.postMessage(Object.assign({ command, tab: currentTab, filter: currentFilter }, extra || {}));
+}
 
-function switchTab(tab, fo) {
+function flashRefresh() {
+    const f = document.getElementById('refresh-flash');
+    if (!f) return;
+    f.classList.add('show');
+    setTimeout(() => f.classList.remove('show'), 600);
+}
+
+function switchTab(tab, filterOverride) {
     currentTab = tab;
-    if (fo) {
-        currentFilter = { ...currentFilter, ...fo };
+    if (filterOverride) {
+        currentFilter = Object.assign({}, currentFilter, filterOverride);
     } else if (tab !== 'observations' && tab !== 'files') {
+        // Preserve project filter when navigating other tabs, drop tag/status
         currentFilter = { project: currentFilter.project };
     }
-    vscode.postMessage({ command: 'refresh', tab: currentTab, filter: currentFilter });
+    flashRefresh();
+    post('refresh');
 }
 
-function applyProject(project) {
-    currentFilter = { ...currentFilter, project: project || undefined };
-    vscode.postMessage({ command: 'refresh', tab: currentTab, filter: currentFilter });
+function setProject(project) {
+    currentFilter = Object.assign({}, currentFilter, { project: project || undefined });
+    flashRefresh();
+    post('refresh');
 }
 
-function applyFilter() {
+function applyListFilter() {
     const s = document.getElementById('fs')?.value || '';
     const t = document.getElementById('ft')?.value || '';
     currentFilter = { project: currentFilter.project };
     if (s) currentFilter.status = s;
     if (t) currentFilter.tag = t;
-    vscode.postMessage({ command: 'refresh', tab: currentTab, filter: currentFilter });
+    flashRefresh();
+    post('refresh');
 }
 
-function startEdit(id) { document.getElementById('v'+id).style.display='none'; document.getElementById('e'+id).style.display='block'; }
-function cancelEdit(id) { document.getElementById('v'+id).style.display='block'; document.getElementById('e'+id).style.display='none'; }
-function saveEdit(id) {
-    vscode.postMessage({ command:'edit', id, content: document.getElementById('ec'+id).value, tags: document.getElementById('et'+id).value, tab: currentTab, filter: currentFilter });
+function startEdit(id) {
+    document.getElementById('v' + id).style.display = 'none';
+    document.getElementById('e' + id).style.display = 'block';
 }
+
+function cancelEdit(id) {
+    document.getElementById('v' + id).style.display = 'block';
+    document.getElementById('e' + id).style.display = 'none';
+}
+
+function saveEdit(id) {
+    post('edit', {
+        id,
+        content: document.getElementById('ec' + id).value,
+        tags: document.getElementById('et' + id).value,
+    });
+}
+
 function confirmDelete(id) {
-    const card = document.getElementById('v'+id);
-    if (!card) { vscode.postMessage({ command:'delete', id, tab: currentTab, filter: currentFilter }); return; }
+    const card = document.getElementById('v' + id);
+    if (!card) { post('delete', { id }); return; }
     const existing = card.querySelector('.confirm-bar');
     if (existing) { existing.remove(); return; }
+
     const bar = document.createElement('div');
     bar.className = 'confirm-bar';
-    bar.innerHTML = '<span class="confirm-text">Delete this observation?</span><button class="btn btn-danger" onclick="vscode.postMessage({command:\'delete\',id:'+id+',tab:currentTab,filter:currentFilter})">Yes, delete</button><button class="btn" onclick="this.parentElement.remove()">No</button>';
+
+    const text = document.createElement('span');
+    text.className = 'confirm-text';
+    text.textContent = 'Delete this observation?';
+
+    const yes = document.createElement('button');
+    yes.className = 'btn btn-danger';
+    yes.textContent = 'Yes, delete';
+    yes.dataset.action = 'do-delete';
+    yes.dataset.id = String(id);
+
+    const no = document.createElement('button');
+    no.className = 'btn';
+    no.textContent = 'No';
+    no.dataset.action = 'cancel-confirm';
+
+    bar.appendChild(text);
+    bar.appendChild(yes);
+    bar.appendChild(no);
     card.appendChild(bar);
 }
-function deleteFileEntry(id) {
-    vscode.postMessage({ command: 'deleteFileEntry', id, tab: currentTab, filter: currentFilter });
-}
+
+document.addEventListener('click', function(e) {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    const action = el.dataset.action;
+    const idAttr = el.dataset.id;
+    const id = idAttr ? parseInt(idAttr, 10) : undefined;
+
+    switch (action) {
+        case 'refresh':
+            flashRefresh();
+            post('refresh');
+            break;
+        case 'open-dashboard':
+            post('openDashboard');
+            break;
+        case 'tab':
+            switchTab(el.dataset.tab);
+            break;
+        case 'filter-tag':
+            switchTab('observations', { tag: el.dataset.tag });
+            break;
+        case 'filter-project':
+            // Buttons / cards (selects use 'change' below)
+            setProject(el.dataset.project || '');
+            break;
+        case 'verify':
+            post('verify', { id });
+            break;
+        case 'reject':
+            post('reject', { id });
+            break;
+        case 'edit-start':
+            if (id !== undefined) startEdit(id);
+            break;
+        case 'edit-cancel':
+            if (id !== undefined) cancelEdit(id);
+            break;
+        case 'edit-save':
+            if (id !== undefined) saveEdit(id);
+            break;
+        case 'confirm-delete':
+            if (id !== undefined) confirmDelete(id);
+            break;
+        case 'do-delete':
+            if (id !== undefined) post('delete', { id });
+            break;
+        case 'cancel-confirm':
+            el.closest('.confirm-bar')?.remove();
+            break;
+        case 'delete-file':
+            if (id !== undefined) post('deleteFileEntry', { id });
+            break;
+        case 'cleanup-artifacts':
+            post('cleanupArtifacts');
+            break;
+    }
+});
+
+document.addEventListener('change', function(e) {
+    const el = e.target.closest('[data-action]');
+    if (!el) return;
+    if (el.dataset.action === 'filter-project') {
+        setProject(el.value);
+    } else if (el.dataset.action === 'filter-list') {
+        applyListFilter();
+    }
+});
 </script>
 </body></html>`;
     }
@@ -544,9 +666,9 @@ function deleteFileEntry(id) {
                     ${tags ? `<div class="card-tags">${tags}</div>` : ''}
                     <div class="card-time">${obs.created_at}</div>
                     <div class="actions">
-                        ${obs.status === 'pending' ? `<button class="btn btn-primary" onclick="send('verify',${obs.id})">Verify</button><button class="btn btn-warn" onclick="send('reject',${obs.id})">Reject</button>` : ''}
-                        <button class="btn" onclick="startEdit(${obs.id})">Edit</button>
-                        <button class="btn btn-danger" onclick="confirmDelete(${obs.id})">Delete</button>
+                        ${obs.status === 'pending' ? `<button class="btn btn-primary" data-action="verify" data-id="${obs.id}">Verify</button><button class="btn btn-warn" data-action="reject" data-id="${obs.id}">Reject</button>` : ''}
+                        <button class="btn" data-action="edit-start" data-id="${obs.id}">Edit</button>
+                        <button class="btn btn-danger" data-action="confirm-delete" data-id="${obs.id}">Delete</button>
                     </div>
                 </div>
                 <div id="e${obs.id}" style="display:none;">
@@ -555,8 +677,8 @@ function deleteFileEntry(id) {
                     <div class="edit-label">Tags</div>
                     <input id="et${obs.id}" class="edit-input" value="${esc(obs.tags || '')}" placeholder="comma-separated">
                     <div class="actions">
-                        <button class="btn btn-fill" onclick="saveEdit(${obs.id})">Save</button>
-                        <button class="btn" onclick="cancelEdit(${obs.id})">Cancel</button>
+                        <button class="btn btn-fill" data-action="edit-save" data-id="${obs.id}">Save</button>
+                        <button class="btn" data-action="edit-cancel" data-id="${obs.id}">Cancel</button>
                     </div>
                 </div>
             </div>
@@ -571,7 +693,7 @@ function deleteFileEntry(id) {
         const to = ['', ...allTags].map(t =>
             `<option value="${esc(t)}" ${filter.tag === t ? 'selected' : ''}>${t || 'Tag'}</option>`
         ).join('');
-        return `<div class="filters"><select id="fs" class="filter-ctl" onchange="applyFilter()">${so}</select><select id="ft" class="filter-ctl" onchange="applyFilter()">${to}</select></div>`;
+        return `<div class="filters"><select id="fs" class="filter-ctl" data-action="filter-list">${so}</select><select id="ft" class="filter-ctl" data-action="filter-list">${to}</select></div>`;
     }
 
     private escapeHtml(text: string): string {

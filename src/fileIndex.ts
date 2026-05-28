@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { RecallDatabase, SymbolInfo } from './db';
+import { generateFileSummary } from './summaryHeuristics';
 
 /**
  * Automatically indexes source files on save — extracts function/class/struct symbols
@@ -301,32 +302,9 @@ export class FileIndexBuilder {
      * This avoids VS Code's Language Model API so indexing stays local-only.
      */
     private async generateSummary(doc: vscode.TextDocument, symbols: SymbolInfo[]): Promise<string> {
-        return this.generateHeuristicSummary(doc, symbols);
-    }
-
-    private generateHeuristicSummary(doc: vscode.TextDocument, symbols: SymbolInfo[]): string {
-        const fileName = doc.uri.fsPath.split('/').pop() || '';
-
-        // Try to extract from file header comment
-        const text = doc.getText(new vscode.Range(0, 0, Math.min(doc.lineCount, 30), 0));
-        const headerMatch = text.match(/(?:\/\*\*?|\/\/)\s*(?:@(?:brief|file|description)\s+)?(.+?)(?:\n|\*\/)/);
-        if (headerMatch && headerMatch[1]) {
-            return headerMatch[1].trim().replace(/\*\s*$/, '').trim();
-        }
-
-        // Build from symbol names
-        const functions = symbols.filter(s => s.type === 'function' || s.type === 'method');
-        const classes = symbols.filter(s => s.type === 'class' || s.type === 'struct');
-
-        if (classes.length > 0 && functions.length > 0) {
-            return `${fileName} — defines ${classes.map(c => c.name).join(', ')} with ${functions.length} function(s)`;
-        }
-        if (functions.length > 0) {
-            const topFuncs = functions.slice(0, 3).map(f => f.name).join(', ');
-            return `${fileName} — ${functions.length} function(s) including ${topFuncs}`;
-        }
-
-        return `${fileName} — ${doc.lineCount} lines`;
+        const fileName = doc.uri.fsPath.split(/[/\\]/).pop() || '';
+        const headerText = doc.getText(new vscode.Range(0, 0, Math.min(doc.lineCount, 40), 0));
+        return generateFileSummary(fileName, headerText, symbols, doc.lineCount);
     }
 
     private static readonly DEFAULT_EXTENSIONS = new Set([

@@ -34,6 +34,8 @@ export class RecallUI {
             vscode.commands.registerCommand('recall.showPending', () => this.showPending()),
             vscode.commands.registerCommand('recall.reindexFile', () => this.reindexCurrentFile()),
             vscode.commands.registerCommand('recall.reindexWorkspace', () => this.reindexWorkspace()),
+            vscode.commands.registerCommand('recall.clearFileIndex', () => this.clearFileIndex()),
+            vscode.commands.registerCommand('recall.vacuumDatabase', () => this.vacuumDatabase()),
             vscode.commands.registerCommand('recall.stats', () => this.showStats()),
             vscode.commands.registerCommand('recall.exportMemory', () => this.exportMemory()),
             vscode.commands.registerCommand('recall.importMemory', () => this.importMemory()),
@@ -156,6 +158,47 @@ export class RecallUI {
                 const count = await this.fileIndexBuilder.indexWorkspace(progress);
                 vscode.window.showInformationMessage(`✅ Recall: Indexed ${count} file(s).`);
             }
+        );
+    }
+
+    // ─── Clear File Index ─────────────────────────────────────────────────
+
+    private async clearFileIndex(): Promise<void> {
+        const stats = this.db.getStats();
+        const confirm = await vscode.window.showWarningMessage(
+            `This will permanently delete all ${stats.totalFilesIndexed} file index entries ` +
+            `(${stats.totalSymbols} tracked symbols). Your observations are NOT affected. ` +
+            `After clearing, run "Recall: Re-index All Open Workspace Files" to rebuild from scratch.`,
+            { modal: true },
+            'Clear All',
+            'Cancel'
+        );
+        if (confirm !== 'Clear All') { return; }
+
+        const removed = this.db.clearFileIndex();
+        vscode.window.showInformationMessage(`Recall: Cleared ${removed} file index entries.`);
+        this.sidebarProvider?.refresh();
+    }
+
+    // ─── Vacuum Database ─────────────────────────────────────────────────
+
+    private async vacuumDatabase(): Promise<void> {
+        const beforeStats = this.db.getStats();
+        const sizeKB = Math.round(beforeStats.dbSizeBytes / 1024);
+        const confirm = await vscode.window.showInformationMessage(
+            `This will compact the database file (currently ${sizeKB} KB) by reclaiming unused space ` +
+            `from deleted or updated rows. No data is lost. This may take a moment for large databases.`,
+            { modal: true },
+            'Compact',
+            'Cancel'
+        );
+        if (confirm !== 'Compact') { return; }
+
+        this.db.vacuum();
+        const afterStats = this.db.getStats();
+        const savedKB = Math.round((beforeStats.dbSizeBytes - afterStats.dbSizeBytes) / 1024);
+        vscode.window.showInformationMessage(
+            `Recall: Database compacted. ${savedKB > 0 ? `Freed ${savedKB} KB.` : 'Already compact.'}`
         );
     }
 
@@ -297,7 +340,7 @@ export class RecallUI {
             { enableScripts: true, retainContextWhenHidden: true }
         );
 
-        const updateHtml = (tab?: string, filter?: { status?: string; tag?: string; search?: string }) => {
+        const updateHtml = (tab?: string, filter?: { status?: string; tag?: string; search?: string; project?: string }) => {
             panel.webview.html = this.getDashboardHtml(tab, filter);
         };
 
@@ -341,16 +384,62 @@ export class RecallUI {
         }, undefined, context.subscriptions);
     }
 
-    private getDashboardHtml(activeTab: string = 'overview', filter?: { status?: string; tag?: string; search?: string }): string {
+    private getDashboardHtml(activeTab: string = 'overview', filter?: { status?: string; tag?: string; search?: string; project?: string }): string {
         const stats = this.db.getStats();
         const allTags = this.db.getDistinctTags();
         const esc = (t: string) => this.escapeHtml(t);
 
+        // ─── Project list (workspace folders ∪ DB observations) ──────────────
+        const wsProjects = (vscode.workspace.workspaceFolders || []).map(f => ({
+            name: f.name,
+            root: f.uri.fsPath.replace(/\\/g, '/'),
+        }));
+        const dbProjects = this.db.getDistinctProjects();
+        const allProjectNames = Array.from(new Set([
+            ...dbProjects,
+            ...wsProjects.map(p => p.name),
+        ])).sort();
+
+        const fileMatchesProject = (filePath: string, projectName: string): boolean => {
+            const ws = wsProjects.find(p => p.name === projectName);
+            const norm = filePath.replace(/\\/g, '/');
+            if (ws && norm.startsWith(ws.root)) { return true; }
+            const lc = projectName.toLowerCase();
+            const lcPath = norm.toLowerCase();
+            return lcPath.includes(`/${lc}/`) || lcPath.endsWith(`/${lc}`);
+        };
+
+        const projectFilter = filter?.project || '';
+        const projectOptions = [
+            `<option value="" ${!projectFilter ? 'selected' : ''}>All projects</option>`,
+            ...allProjectNames.map(p =>
+                `<option value="${esc(p)}" ${projectFilter === p ? 'selected' : ''}>${esc(p)}</option>`
+            ),
+        ].join('');
+        const projectSelectorHtml = allProjectNames.length > 0
+            ? `<select id="filter-project" class="header-select" data-action="filter-project">${projectOptions}</select>`
+            : '';
+
         let tabContent = '';
 
         if (activeTab === 'overview') {
-            const recent = this.db.getRecentObservations(15);
-            const pending = this.db.getPendingObservations();
+            const recent = projectFilter
+                ? this.db.getAllObservations({ project: projectFilter }).slice(0, 15)
+                : this.db.getRecentObservations(15);
+            const allPending = this.db.getPendingObservations();
+            const pending = projectFilter
+                ? allPending.filter(o => o.project === projectFilter)
+                : allPending;
+            const overviewObsCount = projectFilter
+                ? this.db.getAllObservations({ project: projectFilter }).length
+                : stats.totalObservations;
+            const overviewVerifiedCount = projectFilter
+                ? this.db.getAllObservations({ status: 'verified', project: projectFilter }).length
+                : stats.verifiedObservations;
+            const overviewPendingCount = projectFilter ? pending.length : stats.pendingObservations;
+            const overviewFilesCount = projectFilter
+                ? this.db.getAllFileIndexEntries().filter(fe => fileMatchesProject(fe.file_path, projectFilter)).length
+                : stats.totalFilesIndexed;
 
             const tagBadges = stats.topTags.map(t =>
                 `<span class="tag clickable" data-action="filter-tag" data-tag="${esc(t.tag)}">${esc(t.tag)} <span class="tag-count">${t.count}</span></span>`
@@ -372,19 +461,19 @@ export class RecallUI {
             tabContent = `
                 <div class="metrics">
                     <div class="metric-card clickable" data-action="tab" data-tab="observations">
-                        <div class="metric-val">${stats.totalObservations}</div>
+                        <div class="metric-val">${overviewObsCount}</div>
                         <div class="metric-lbl">observations</div>
                     </div>
                     <div class="metric-card clickable" data-action="tab" data-tab="observations" data-filter-status="verified">
-                        <div class="metric-val green">${stats.verifiedObservations}</div>
+                        <div class="metric-val green">${overviewVerifiedCount}</div>
                         <div class="metric-lbl">verified</div>
                     </div>
                     <div class="metric-card clickable" data-action="tab" data-tab="pending">
-                        <div class="metric-val ${stats.pendingObservations > 0 ? 'amber' : ''}">${stats.pendingObservations}</div>
+                        <div class="metric-val ${overviewPendingCount > 0 ? 'amber' : ''}">${overviewPendingCount}</div>
                         <div class="metric-lbl">pending</div>
                     </div>
                     <div class="metric-card clickable" data-action="tab" data-tab="files">
-                        <div class="metric-val">${stats.totalFilesIndexed}</div>
+                        <div class="metric-val">${overviewFilesCount}</div>
                         <div class="metric-lbl">files indexed</div>
                     </div>
                     <div class="metric-card">
@@ -417,7 +506,11 @@ export class RecallUI {
             `;
         } else if (activeTab === 'observations' || activeTab === 'pending') {
             const statusFilter = activeTab === 'pending' ? 'pending' : filter?.status;
-            const observations = this.db.getAllObservations({ status: statusFilter, tag: filter?.tag });
+            const observations = this.db.getAllObservations({
+                status: statusFilter,
+                tag: filter?.tag,
+                project: projectFilter || undefined,
+            });
 
             // Filter by search text client-side
             let filtered = observations;
@@ -439,7 +532,8 @@ export class RecallUI {
                 <div class="filter-bar">
                     <select id="filter-status" class="filter-select" data-action="filter">${statusOptions}</select>
                     <select id="filter-tag" class="filter-select" data-action="filter">${tagOptions}</select>
-                    <input id="filter-search" class="filter-input" placeholder="Search content…" value="${esc(filter?.search || '')}" data-action="filter">
+                    <input id="filter-search" class="filter-input" placeholder="Search content… (Enter to search)" value="${esc(filter?.search || '')}">
+                    <button class="btn btn-sm" data-action="search">Search</button>
                     <span class="filter-count">${filtered.length} result${filtered.length !== 1 ? 's' : ''}</span>
                 </div>
             `;
@@ -451,7 +545,10 @@ export class RecallUI {
                 <div class="card-list">${cards || '<div class="empty">No matching observations.</div>'}</div>
             `;
         } else if (activeTab === 'files') {
-            const files = this.db.getAllFileIndexEntries();
+            const allFiles = this.db.getAllFileIndexEntries();
+            const files = projectFilter
+                ? allFiles.filter(fe => fileMatchesProject(fe.file_path, projectFilter))
+                : allFiles;
 
             const fileCards = files.map(fe => {
                 const fileName = fe.file_path.split('/').pop() || fe.file_path;
@@ -487,7 +584,7 @@ export class RecallUI {
             }).join('');
 
             tabContent = `
-                <div class="filter-count" style="margin-bottom: 12px;">${files.length} file${files.length !== 1 ? 's' : ''} indexed</div>
+                <div class="filter-count" style="margin-bottom: 12px;">${files.length} file${files.length !== 1 ? 's' : ''} indexed${projectFilter ? ` in ${esc(projectFilter)}` : ''}</div>
                 <div class="card-list">${fileCards || '<div class="empty">No files indexed yet.</div>'}</div>
             `;
         }
@@ -524,6 +621,12 @@ body {
     position: sticky; top: 0; z-index: 10; background: var(--vscode-editor-background);
 }
 .header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.3px; }
+.header-actions { display: flex; gap: 10px; align-items: center; }
+.header-select {
+    background: var(--vscode-input-background); color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border); border-radius: 4px;
+    padding: 5px 10px; font-size: 12px; min-width: 160px; cursor: pointer;
+}
 .nav {
     display: flex; gap: 0; padding: 0 32px; border-bottom: var(--border);
     position: sticky; top: 57px; z-index: 10; background: var(--vscode-editor-background);
@@ -710,7 +813,10 @@ details.sym-detail summary { font-size: 11px; cursor: pointer; color: var(--text
 </style></head><body>
     <div class="header">
         <h1>Recall</h1>
-        <button class="btn btn-refresh" data-action="refresh">Refresh</button>
+        <div class="header-actions">
+            ${projectSelectorHtml}
+            <button class="btn btn-refresh" data-action="refresh">Refresh</button>
+        </div>
     </div>
 
     <div class="nav">
@@ -731,8 +837,9 @@ details.sym-detail summary { font-size: 11px; cursor: pointer; color: var(--text
 
     function switchTab(tab, filterOverride) {
         currentTab = tab;
-        if (filterOverride) { currentFilter = filterOverride; }
-        else if (tab !== 'observations') { currentFilter = {}; }
+        const project = currentFilter.project;
+        if (filterOverride) { currentFilter = Object.assign({}, filterOverride, { project }); }
+        else if (tab !== 'observations') { currentFilter = { project }; }
         vscode.postMessage({ command: 'refresh', tab: currentTab, filter: currentFilter });
     }
 
@@ -740,10 +847,17 @@ details.sym-detail summary { font-size: 11px; cursor: pointer; color: var(--text
         const status = document.getElementById('filter-status')?.value || '';
         const tag = document.getElementById('filter-tag')?.value || '';
         const search = document.getElementById('filter-search')?.value || '';
+        const project = currentFilter.project;
         currentFilter = {};
         if (status) currentFilter.status = status;
         if (tag) currentFilter.tag = tag;
         if (search) currentFilter.search = search;
+        if (project) currentFilter.project = project;
+        vscode.postMessage({ command: 'refresh', tab: currentTab, filter: currentFilter });
+    }
+
+    function setProject(project) {
+        currentFilter = Object.assign({}, currentFilter, { project: project || undefined });
         vscode.postMessage({ command: 'refresh', tab: currentTab, filter: currentFilter });
     }
 
@@ -764,6 +878,9 @@ details.sym-detail summary { font-size: 11px; cursor: pointer; color: var(--text
             }
             case 'filter-tag':
                 switchTab('observations', { tag: el.dataset.tag });
+                break;
+            case 'search':
+                applyFilter();
                 break;
             case 'verify':
                 send('verify', id);
@@ -824,10 +941,15 @@ details.sym-detail summary { font-size: 11px; cursor: pointer; color: var(--text
     });
 
     document.addEventListener('change', function(e) {
+        const projEl = e.target.closest('[data-action="filter-project"]');
+        if (projEl) { setProject(projEl.value); return; }
         if (e.target.closest('[data-action="filter"]')) applyFilter();
     });
-    document.addEventListener('input', function(e) {
-        if (e.target.closest('[data-action="filter"]')) applyFilter();
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && e.target.closest('#filter-search')) {
+            e.preventDefault();
+            applyFilter();
+        }
     });
 </script>
 </body>
