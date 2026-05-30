@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.3.2] - 2026-05-30
+
+### Changed
+
+- **`recall_search` query guidance overhauled.**
+  - **Two-tier query strategy** baked into the `recall_search` tool's `modelDescription`. Tier 1 = context-first (`"<subsystem> architecture"`), Tier 2 = symptom-focused after context is established. This works for every user immediately, even without the instruction templates.
+  - **Retry protocol** added to all instruction templates: do not conclude "no prior knowledge" from a single miss — retry at least 2-3 times with broader queries, different tags, or the parent subsystem before proceeding without context.
+  - **Anti-pattern examples** documented in `recall-aware.instructions.md` showing what symptom-only queries look like and why they fail.
+
 ## [1.3.1] - 2026-05-27
 
 ### Fixed
