@@ -1,51 +1,84 @@
 ## Recall Memory Tools
 
-Three tools for persistent developer memory. Use them in this order on every source file task.
+You have access to three Recall tools: `recall_search`, `recall_save`, and `recall_file_index`.
+These apply to ALL source files regardless of language (C/C++, Python, JS/TS, Rust, Go, etc.).
 
-### 1. `recall_file_index` — before reading any source file
+### When to Use File Index (recall_file_index)
 
-Look up the file's symbol map (functions, classes, line numbers) before calling `read_file`.
-Use the returned line numbers to read only the specific function you need.
+- ALWAYS check the file index before calling `read_file` on any source file
+- If the index has the file, read ONLY the specific function(s) you need using
+  the line numbers from the index
+- If the index does NOT have the file, read the file normally (it will be indexed
+  on the next save)
+- Never read a full file when the index already gives you a function listing
+- Attachment content is NOT a substitute — check the index even if the file is
+  already visible in the conversation
+- Do NOT use this for searching bug fixes or prior knowledge — use `recall_search` for that
 
-```
-recall_file_index({ "query": "authService.ts" })
-```
+### When to Search (recall_search)
 
-If the file is not indexed, read it normally — it will be indexed on next save.
-Do not use this for searching bug fixes or prior knowledge — use `recall_search` for that.
+- ALWAYS search FIRST when the user asks about a bug, problem, subsystem, or past decision — before reading any files
+- ALWAYS search before reading a source file larger than 500 lines
+- ALWAYS search before editing or refactoring any function
 
-### 2. `recall_search` — before editing or investigating
+**Two-tier query strategy.** Memory stores what was *learned*, not what you are *guessing*.
+Symptom-only queries usually miss the architectural notes that would unblock you.
 
-Search persistent memory for prior fixes, architectural decisions, and recorded gotchas.
+- **Tier 1 — context first** (run when entering a new subsystem or starting a new investigation):
+  Use only the subsystem/module name + a broad category word.
+  Examples: `"auth architecture"`, `"renderer dataflow"`, `"payments gotchas"`
 
-```
-recall_search({ "query": "getAccessToken refresh race condition", "tags": "auth" })
-```
+- **Tier 2 — symptom next** (run after Tier 1 context is established):
+  Use function name + module name + symptom keywords.
+  Examples: `"getAccessToken refresh race condition"`, `"render_frame flicker vsync"`
 
-**When to search:** bug reports, before modifying a function, when asked how something works, before refactoring.
+Do NOT write queries entirely in terms of the symptom you are investigating:
+  BAD: `"page not loading after login redirect"`
+  GOOD: `"auth architecture"` then `"auth refreshToken redirect loop"`
 
-**Query format:** 2-6 keywords — function name + module + symptom. Not the full user message.
+**Retry on misses.** If search returns 0 results:
+1. Retry with a BROADER query — drop symptom words, keep subsystem name
+2. Retry with different tags or no tags at all
+3. Retry with the parent subsystem name
+
+Do NOT conclude "no prior knowledge exists" after a single failed search.
+Run at least 2-3 different queries before proceeding without recall context.
 
 **Reading results:**
-- `✓ verified` = engineer-confirmed fact. Act on it without re-reading code.
-- `⏳ pending` = AI-captured, unverified. Read the code to confirm before acting.
+- `✓ verified` = engineer-confirmed fact. Trust it and skip redundant file reads.
+- `⏳ pending` = AI-captured, unverified. Treat as hypothesis — read the code to confirm before acting.
 - `[from: ProjectX]` = cross-project result. Check applicability before using.
+- If search returns nothing after retries, proceed normally and save after you learn something.
 
-Do not use this for looking up file structure or line numbers — use `recall_file_index` for that.
+Do NOT use this for looking up file structure or line numbers — use `recall_file_index` for that.
 
-### 3. `recall_save` — after completing significant work
+### When to Save (recall_save)
 
-Record what you learned so it can be recalled in future sessions.
+SAVE when you discover:
+- A bug root cause (what caused it and why)
+- A successful fix (what was changed and what it solved)
+- An architectural insight (how components connect, data flow, timing dependencies)
+- A non-obvious gotcha (e.g. "builds pass but this is a behavioral bug, not a build error")
+- Cross-file data flow or dependencies that took multiple reads to understand
+- A confirmed or disproved hypothesis
 
-```
-recall_save({
-  "content": "Race condition in authService.ts getAccessToken() L142: concurrent calls all pass expiry check before any refresh completes. Fix: added mutex around refresh block.",
-  "tags": "auth,bugfix,concurrency"
-})
-```
+DO NOT SAVE:
+- Obvious code facts that the file index already captures (function names, line numbers)
+- Speculative guesses you have not confirmed
+- Build pass/fail results (passive capture handles this automatically)
+- Git commit info (passive capture handles this automatically)
+- Observations that duplicate what is already in memory — search first
+- Vague text like "fixed auth bug" — name the file, function, line, and WHY
 
-**When to save:** identified a root cause, discovered a non-obvious API contract, mapped cross-file data flow, confirmed/disproved a hypothesis, completed a refactor.
+**Quality:** Every observation should name the file, function, and line number.
+Explain the *why*, not just the *what*. Future sessions will only find this if
+it contains the right keywords and meaning.
 
-**Quality:** name the file, function, and line number. Explain the *why*, not just the *what*.
+**Tags:** Always include tags when saving. Use subsystem name + category.
+Categories: `bugfix`, `architecture`, `gotcha`, `dataflow`, `performance`, `config`, `concurrency`
 
-**Do not save:** obvious code facts (file index captures those), build results (passive capture handles those), git commits (passive capture handles those), unconfirmed guesses.
+### Memory Trust
+
+- Observations marked `✓ verified` are trusted facts — act on them without re-reading code
+- Observations marked `⏳ pending` are unconfirmed — read the relevant code to verify before acting; do NOT treat them as facts
+- If you act on a pending observation and confirm it was correct, note this so the engineer can verify it

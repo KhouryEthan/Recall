@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.3.1-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.3.2-green.svg" alt="Version">
   <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg" alt="Node >= 22">
   <img src="https://img.shields.io/badge/VS%20Code-%3E%3D1.95-blue.svg" alt="VS Code >= 1.95">
   <img src="https://img.shields.io/badge/100%25-offline%20%26%20private-purple.svg" alt="100% Offline & Private">
@@ -21,6 +21,7 @@
   <a href="#quick-start">Quick Start</a> •
   <a href="#how-it-works">How It Works</a> •
   <a href="#commands">Commands</a> •
+  <a href="#getting-better-results-from-recall">Tips</a> •
   <a href="#configuration">Configuration</a> •
   <a href="#development">Development</a>
 </p>
@@ -52,7 +53,7 @@ Install the extension, then run one command:
 code --install-extension recall-dev.recall
 
 # Or from a .vsix file
-code --install-extension recall-1.3.1.vsix --force
+code --install-extension recall-1.3.2.vsix --force
 ```
 
 Set up your repository so Copilot knows how to use Recall:
@@ -235,6 +236,21 @@ This creates:
 | `.github/prompts/recall-seed.prompt.md` | One-time prompt to populate baseline memory |
 | `.github/prompts/recall-audit.prompt.md` | Monthly maintenance prompt |
 
+
+### Getting Better Results from Recall
+
+Copilot calls `recall_search` automatically in most cases, but you can improve results by explicitly mentioning it in your prompt:
+
+```
+@recall_search auth architecture
+```
+
+This is especially useful when:
+- You're entering an unfamiliar part of the codebase and want to see what's already known
+- Copilot didn't search memory on its own before diving into code
+- A previous search returned nothing and you want to retry with broader terms
+
+**Tip:** Start broad (module name + "architecture" or "dataflow"), then narrow down to specific symptoms. Memory stores what was learned in past sessions, so searching by module name surfaces more relevant context than searching by the exact symptom you're investigating.
 
 ### Seeding Memory (Cold Start)
 
