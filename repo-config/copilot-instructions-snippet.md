@@ -73,18 +73,33 @@ confirm it, and double-backing when it turns out wrong.
 
 ### When to Save (recall_save)
 
-**Save incrementally at each milestone — do NOT batch into one save at the end.**
-A typical investigation should produce 2-5 observations. Save the moment you learn
-something durable:
+**ALWAYS save incrementally at each milestone — NEVER batch into one save at the end.**
+A typical investigation MUST produce 2-5 observations. Save the MOMENT you learn
+something durable — do not wait until you are done.
 
-- After mapping how a subsystem works (architecture)
-- After confirming or disproving a hypothesis
-- After discovering a cross-file dependency or data flow
-- After finding a non-obvious contract, side effect, or ordering constraint
-- After identifying a bug root cause and the fix
+**CRITICAL RULES:**
+
+1. **One claim per observation. ALWAYS.** If your `[WHAT]` is more than one sentence,
+   you MUST split it into separate observations. Each observation must be findable by
+   a single focused search query. A multi-paragraph observation dilutes the embedding
+   and becomes unfindable.
+
+2. **Split architecture from bugfix. ALWAYS.** If you discover how a system works AND
+   find a bug in it, that is TWO observations (one architecture, one bugfix), not one.
+
+3. **Save DURING the investigation, not after.** The moment you understand how a
+   subsystem works — BEFORE you find the bug — save the architecture observation.
+   Do not wait until the end.
+
+**When to save (milestones):**
+- IMMEDIATELY after mapping how a subsystem works (architecture)
+- IMMEDIATELY after confirming or disproving a hypothesis
+- IMMEDIATELY after discovering a cross-file dependency or data flow
+- IMMEDIATELY after finding a non-obvious contract, side effect, or ordering constraint
+- IMMEDIATELY after identifying a bug root cause and the fix
 - After a `recall_ask` answer is marked reusable (auto-handled)
 
-**Format:** Use the `kind` field and structured content:
+**Format:** Use the `kind` field. `[WHAT]` MUST be a single sentence.
 
 ```
 recall_save({
@@ -94,15 +109,35 @@ recall_save({
 })
 ```
 
+**Correct example (split into two):**
+```
+// First: the architectural fact (saved DURING investigation)
+recall_save({
+  "content": "[WHAT] output_data[] is indexed by MMC model ID, not VIS slot index — these index spaces are independent. [WHERE] mmc_dis.cpp L230-L310. [WHY] Any code reading output_data by loop counter instead of model ID will read the wrong entity.",
+  "kind": "architecture",
+  "tags": "vis,mmc,architecture"
+})
+
+// Second: the bugfix (saved AFTER confirming the fix)
+recall_save({
+  "content": "[WHAT] entity_type misclassification: LINK_TRAINER read as TCAS because output_data indexed by VIS slot (i) instead of MMC model ID (id). [WHERE] vis_inst.cpp mmc_model_callback() L399-L452. [WHY] Fix: replace output_data[i] with output_data[id] in model_is_new block.",
+  "kind": "bugfix",
+  "tags": "vis,mmc,bugfix"
+})
+```
+
+**WRONG (do NOT do this):**
+```
+// BAD: multiple sentences in [WHAT], mixes architecture + bugfix + example
+recall_save({
+  "content": "[WHAT] vis_inst.cpp mmc_model_callback indexes output_data[i] using VIS slot instead of MMC model ID. These indices are independent — entity with MMC id=5 may land in VIS slot 0, so output_data[0].type is read instead of output_data[5].type. [WHERE] ... [WHY] ...",
+  "kind": "bugfix",
+  "tags": "vis,mmc,bugfix"
+})
+```
+
 **Kind categories:** `architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`,
 `hypothesis`, `decision`
-
-**Examples:**
-- `"kind": "architecture"` — how components connect, singleton patterns, shared state
-- `"kind": "gotcha"` — non-obvious traps (idempotency, ordering, silent failures)
-- `"kind": "dataflow"` — how data flows across files (A → B → C)
-- `"kind": "bugfix"` — root cause + what fixed it
-- `"kind": "decision"` — design choice and rationale
 
 DO NOT SAVE:
 - Obvious facts the file index already captures (function names, line numbers)
@@ -111,8 +146,6 @@ DO NOT SAVE:
 - Vague text like "fixed auth bug" — name file, function, line, and WHY
 
 **Tags:** Always include tags. Use module name + kind category.
-Categories: `bugfix`, `architecture`, `gotcha`, `dataflow`, `performance`,
-`config`, `concurrency`, `contract`, `decision`
 
 ### Memory Trust
 

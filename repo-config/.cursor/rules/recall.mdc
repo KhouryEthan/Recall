@@ -54,28 +54,37 @@ Asking one question is far cheaper than spinning on an assumption and double-bac
 
 ### When to Save (recall_save)
 
-**Save incrementally at each milestone — do NOT batch into one save at the end.**
-A typical investigation should produce 2-5 observations. Save the moment you learn something durable:
+**ALWAYS save incrementally at each milestone — NEVER batch into one save at the end.**
+A typical investigation MUST produce 2-5 observations.
 
-- After mapping how a subsystem works (architecture)
-- After confirming or disproving a hypothesis
-- After discovering a cross-file dependency or data flow
-- After finding a non-obvious contract, side effect, or ordering constraint
-- After identifying a bug root cause and the fix
+**CRITICAL RULES:**
 
-**Format:** Use the `kind` field and structured content:
+1. **One claim per observation. ALWAYS.** If `[WHAT]` is more than one sentence, SPLIT IT. Multi-sentence observations dilute the embedding and become unfindable.
+
+2. **ALWAYS split architecture from bugfix.** Discovering how a system works AND finding a bug = TWO separate observations.
+
+3. **ALWAYS save DURING the investigation, not after.** The moment you understand how a subsystem works — BEFORE finding the bug — save immediately.
+
+**When to save:**
+- IMMEDIATELY after mapping how a subsystem works (architecture)
+- IMMEDIATELY after confirming or disproving a hypothesis
+- IMMEDIATELY after discovering a cross-file dependency or data flow
+- IMMEDIATELY after finding a non-obvious contract or side effect
+- IMMEDIATELY after identifying a bug root cause and the fix
+
+**Format:** `[WHAT]` MUST be a single sentence.
 
 ```
 recall_save({
   "content": "[WHAT] one-line claim. [WHERE] file, function, line. [WHY] reason this matters.",
   "kind": "architecture",
-  "tags": "auth,architecture"
+  "tags": "module,architecture"
 })
 ```
 
 **Kind categories:** `architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`, `hypothesis`, `decision`
 
-DO NOT SAVE: trivial facts the file index captures, build/git results (passive capture handles those), unconfirmed guesses, or vague text like "fixed auth bug."
+DO NOT SAVE: trivial facts the file index captures, build/git results, unconfirmed guesses, or vague text like "fixed auth bug."
 
 ### Memory Trust
 

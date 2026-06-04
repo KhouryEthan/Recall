@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.4.0-green.svg" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.4.1-green.svg" alt="Version">
   <img src="https://img.shields.io/badge/VS%20Code-%3E%3D1.95-blue.svg" alt="VS Code >= 1.95">
   <img src="https://img.shields.io/badge/100%25-offline%20%26%20private-purple.svg" alt="100% Offline & Private">
 </p>
@@ -35,7 +35,7 @@
 code --install-extension ethankhoury.recall-persistent-memory
 
 # Or from a .vsix file
-code --install-extension recall-persistent-memory-1.4.0.vsix --force
+code --install-extension recall-persistent-memory-1.4.1.vsix --force
 ```
 
 ### 2. Set up your repository
