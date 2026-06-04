@@ -10,59 +10,69 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache 2.0"></a>
-  <img src="https://img.shields.io/badge/version-1.3.2-green.svg" alt="Version">
-  <img src="https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg" alt="Node >= 22">
+  <img src="https://img.shields.io/badge/version-1.4.0-green.svg" alt="Version">
   <img src="https://img.shields.io/badge/VS%20Code-%3E%3D1.95-blue.svg" alt="VS Code >= 1.95">
   <img src="https://img.shields.io/badge/100%25-offline%20%26%20private-purple.svg" alt="100% Offline & Private">
 </p>
 
 <p align="center">
-  <a href="#token-savings">Token Savings</a> •
-  <a href="#quick-start">Quick Start</a> •
+  <a href="#setup">Setup</a> •
+  <a href="#being-effective-with-recall">Being Effective</a> •
   <a href="#how-it-works">How It Works</a> •
+  <a href="#features">Features</a> •
   <a href="#commands">Commands</a> •
-  <a href="#getting-better-results-from-recall">Tips</a> •
-  <a href="#configuration">Configuration</a> •
-  <a href="#development">Development</a>
+  <a href="#configuration">Configuration</a>
 </p>
 
 ---
 
-Recall gives GitHub Copilot a persistent, searchable memory that survives across sessions. It searches prior knowledge before reading files, saves discoveries after solving problems, and indexes every function in your codebase. Everything stays local, runs offline, and requires zero cloud dependencies.
+## Setup
 
-## Token Savings
-
-Measured on a resume-work debugging session in a medium-large codebase. Without Recall, Copilot reads files from scratch. With Recall, it searches memory first and reads only what it needs.
-
-| Metric | Without Recall | With Recall | Reduction |
-|---|---|---|---|
-| **Tokens per session** | ~111,000 | ~9,700 | **91%** |
-| **Source lines read** | 12,690 | 83 | **99.3%** |
-| **Time to first response** | 60-90 sec | 10-15 sec | **~6x** |
-| **Full file reads** | 4 files | 0 files | **100%** |
-| **Grep searches** | 5 calls | 0 calls | **100%** |
-
-> Actual savings vary by project size and memory maturity. The extension tracks your actual savings per session. Run @recall stats or Recall: Show Database Statistics to see your numbers.
-
-## Quick Start
-
-Install the extension, then run one command:
+### 1. Install
 
 ```bash
 # From the VS Code Marketplace
-code --install-extension recall-dev.recall
+code --install-extension ethankhoury.recall-persistent-memory
 
 # Or from a .vsix file
-code --install-extension recall-1.3.2.vsix --force
+code --install-extension recall-persistent-memory-1.4.0.vsix --force
 ```
 
-Set up your repository so Copilot knows how to use Recall:
+### 2. Set up your repository
+
+This teaches Copilot how and when to use Recall's tools in your project:
 
 ```
-Ctrl+Shift+P > "Recall: Setup Repository (Add Copilot Guidance Files)"
+Ctrl+Shift+P > "Recall: Setup Repository"
 ```
 
-That's it. Reload VS Code and start working. Recall builds memory automatically from here.
+This creates instruction files under `.github/` that Copilot reads automatically. Commit them to your repo so the whole team benefits.
+
+### 3. Start working
+
+That's it. Recall builds memory as you work. Copilot will search memory before reading files, save what it learns at milestones, and ask you clarifying questions instead of guessing.
+
+If you are updating from a previous version, run **Setup Repository** again and choose **"Update to latest"** to refresh the instruction files.
+
+---
+
+## Being Effective with Recall
+
+### The workflow Recall teaches Copilot
+
+1. **Search memory** before reading files (architectural context first, then symptoms)
+2. **Look up the file index** before `read_file` (read 80 lines, not 8,000)
+3. **Ask you** when unsure about intent or approach (instead of guessing)
+4. **Do the work**
+5. **Save observations** at each milestone (not one dump at the end)
+
+### Things you can do to help
+
+- **Verify pending observations.** Copilot's saves stay "pending" until you confirm them. Verified observations are trusted as ground truth in future sessions — pending ones are treated as hypotheses.
+- **Search explicitly when Copilot forgets.** Type `@recall_search auth architecture` in chat to force a memory lookup. Start broad (module + "architecture"), then narrow to symptoms.
+- **Seed memory on a cold start.** Run `Recall: Setup Repository`, then open `recall-seed.prompt.md` in Copilot Chat and point it at a module. It walks the codebase building baseline observations.
+- **Answer when asked.** `recall_ask` pops a QuickPick when Copilot is unsure. Your answer becomes ground truth and (if reusable) gets saved as verified memory so it never asks again.
+- **Re-run Setup Repository after extension updates** to get the latest instruction improvements.
 
 ---
 
@@ -79,13 +89,14 @@ Copilot --read_file--> 7,854 lines         Copilot --recall_search-->     3 obse
                                             Total: ~600 tokens
 ```
 
-Recall registers three Language Model Tools that Copilot calls autonomously, the same way it calls `read_file` or `grep_search`:
+Recall registers four Language Model Tools that Copilot calls autonomously:
 
-| Tool | What Copilot Does With It |
+| Tool | What It Does |
 |---|---|
 | `recall_search` | Searches memory for prior observations before deep-diving into code |
-| `recall_file_index` | Looks up cached function listings to read only specific lines |
-| `recall_save` | Saves bug root causes, fixes, and architectural insights for next time |
+| `recall_file_index` | Looks up cached function listings so Copilot reads only specific lines |
+| `recall_save` | Saves insights at milestones using a structured format (kind + tags) |
+| `recall_ask` | Asks you a clarifying question with selectable options instead of guessing |
 
 ### Example Session
 
@@ -93,48 +104,72 @@ Recall registers three Language Model Tools that Copilot calls autonomously, the
 You type: "Fix the token refresh race condition in auth"
 
 Copilot (behind the scenes):
-  1. recall_search("token refresh race condition auth")
-     > 3 prior observations from past sessions (keyword + semantic match)
+  1. recall_search("auth architecture")
+     > 2 architectural observations about how auth tokens flow
 
-  2. recall_file_index("authService.ts")
-     > summary + 12 functions with line numbers (400 tokens vs 8,000 for the full file)
+  2. recall_search("getAccessToken refresh race condition")
+     > 1 prior bugfix observation from last week
 
-  3. read_file authService.ts lines 130-195
-     > only the 2 functions it actually needs
+  3. recall_file_index("authService.ts")
+     > 12 functions with line numbers (400 tokens vs 8,000 for full file)
 
-  4. Makes the fix
+  4. read_file authService.ts lines 130-195
+     > only the 2 functions it needs
 
-  5. recall_save("Fixed token refresh race condition...")
+  5. Makes the fix
+
+  6. recall_save("[WHAT] Race condition fixed... [WHERE] ... [WHY] ...")
      > saved as 'pending' for you to verify
 ```
 
 ---
 
+## Features
+
+- **Autonomous Memory** — Copilot searches and saves on its own. No manual @commands needed.
+- **Clarifying Questions** — `recall_ask` lets Copilot ask you instead of assuming. Your answers become verified memory.
+- **Hybrid Search** — FTS5 keyword search + 384-dim semantic embeddings. Finds memories even when wording differs.
+- **File Index** — Every source file gets a cached function/class listing with line numbers (30+ languages via DocumentSymbol).
+- **Structured Observations** — Saves with a `kind` field (architecture, bugfix, gotcha, dataflow, contract, hypothesis, decision) for consistent formatting.
+- **Trust System** — AI observations stay "pending" until you verify. Objective events (builds, commits) are auto-verified.
+- **Passive Capture** — Builds, debug sessions, git commits, and idle notes are logged automatically.
+- **Deduplication** — Clusters near-identical observations by semantic similarity. One-click merge.
+- **Token Savings Tracker** — Per-session and all-time metrics. Run `@recall stats` to see your numbers.
+- **Import / Export** — Share memory across machines or with teammates via JSON.
+- **100% Private** — Bundled ONNX model. WebAssembly SQLite. Zero network calls. Zero telemetry.
+
+---
+
+## Token Savings
+
+Measured on a resume-work debugging session in a medium-large codebase:
+
+| Metric | Without Recall | With Recall | Reduction |
+|---|---|---|---|
+| **Tokens per session** | ~111,000 | ~9,700 | **91%** |
+| **Source lines read** | 12,690 | 83 | **99.3%** |
+| **Time to first response** | 60-90 sec | 10-15 sec | **~6x** |
+| **Full file reads** | 4 files | 0 files | **100%** |
+
+> Actual savings vary by project size and memory maturity. The extension tracks your numbers per session.
+
+---
+
 ## Semantic Search
 
-Recall doesn't just match keywords. Every observation is embedded as a 384-dimensional vector using a bundled sentence-transformer model (all-MiniLM-L6-v2, ~23 MB ONNX). When Copilot calls `recall_search`, Recall runs a hybrid query:
+Every observation is embedded as a 384-dimensional vector using a bundled sentence-transformer model (all-MiniLM-L6-v2, ~23 MB ONNX). When Copilot calls `recall_search`, Recall runs a hybrid query:
 
-1. **FTS5 keyword match** with prefix expansion (searching "auth" also finds "authentication", "authorize")
-2. **Cosine similarity** over embedding vectors (searching "login broken" finds "OAuth token refresh fails silently")
-3. Results are merged and ranked by combined score
-
-This means Copilot finds relevant prior observations even when the exact wording doesn't match. A search for "race condition in token handling" will surface an observation saved as "fixed concurrent refresh bug in auth service" because the meaning is close, even though the words are different.
+1. **FTS5 keyword match** with prefix expansion ("auth" finds "authentication", "authorize")
+2. **Cosine similarity** over embedding vectors ("login broken" finds "OAuth token refresh fails silently")
+3. Results merged and ranked by combined score
 
 The model runs entirely in-process. No API calls, no network, no data leaves your machine.
 
 ---
 
-## Key Features
+## Trust & Verification
 
-- **Autonomous Memory** - Copilot searches and saves on its own. No manual @commands needed during normal workflows.
-- **Hybrid Search** - FTS5 keyword search + 384-dim semantic embeddings. Finds relevant memories even when wording differs.
-- **File Index** - Every source file gets a cached function/class listing with line numbers. Copilot reads 80 lines instead of 8,000.
-- **Passive Capture** - Builds, debug sessions, git commits, and idle notes are logged automatically as verified observations.
-- **Trust System** - AI-generated observations stay "pending" until you verify them. Objective events (builds, commits) are auto-verified.
-- **Deduplication** - Clusters near-identical observations by semantic similarity. One-click merge keeps memory clean.
-- **Token Savings Tracker** - Built-in per-session and all-time metrics. See exactly how many tokens Recall saves you.
-- **Import / Export** - Share memory across machines or with teammates via JSON with duplicate detection.
-- **100% Private** - Bundled ONNX model. WebAssembly SQLite. Zero network calls. Zero telemetry. Nothing leaves your machine.
+Copilot-generated observations are saved as **pending** with a notification: `[Verify] [Edit & Save] [Discard]`. Unconfirmed observations auto-expire after 7 days (configurable). Verified observations are treated as ground truth in future sessions.
 
 ---
 
@@ -165,29 +200,25 @@ The model runs entirely in-process. No API calls, no network, no data leaves you
 | Command | Description |
 |---|---|
 | `Recall: Quick Save Observation` | Save an insight with tags (`Ctrl+Shift+M`) |
-| `Recall: Show Pending Observations` | Review unverified Copilot observations |
-| `Recall: Open Dashboard` | Sidebar with stats, pending reviews, token savings |
+| `Recall: Show Pending Observations` | Review unverified observations |
+| `Recall: Open Dashboard` | Stats, pending reviews, token savings |
 | `Recall: Re-index Current File` | Rebuild index for the active file |
-| `Recall: Re-index All Open Workspace Files` | Index all source files in workspace |
+| `Recall: Re-index All Open Workspace Files` | Index all source files |
 | `Recall: Reindex Semantic Embeddings` | Backfill embeddings for existing observations |
 | `Recall: Deduplicate Memory` | Find and merge near-identical observations |
 | `Recall: Export Memory to JSON` | Export everything |
 | `Recall: Import Memory from JSON` | Import from a teammate's export |
-| `Recall: Setup Repository` | Add Copilot guidance files to your project |
-| `Recall: Show Database Statistics` | Observation counts, index stats, token savings |
+| `Recall: Setup Repository` | Add/update Copilot guidance files |
+| `Recall: Show Database Statistics` | Counts, index stats, token savings |
+| `Recall: Clear All File Index Entries` | Wipe and re-index from scratch |
+| `Recall: Compact Database (Vacuum)` | Free unused space |
 | `Recall: Run Diagnostics` | Debug tool registration |
-
----
-
-## Trust & Verification
-
-I always found it annoying when the agent makes observations or assumptions that are completely wrong, it wastes time and tokens. With Recall YOU have control over the observations and assumptions that the agent can make. Automated Copilot observations are saved as **pending** with a notification: `[Verify] [Edit & Save] [Discard]`. Unconfirmed observations will auto expire after 7 days by default. (This is configurable if you want them to last longer)
 
 ---
 
 ## Configuration
 
-All settings are under `recall.*` in VS Code settings:
+All settings under `recall.*` in VS Code settings:
 
 | Setting | Default | Description |
 |---|---|---|
@@ -218,109 +249,22 @@ All settings are under `recall.*` in VS Code settings:
 
 ---
 
-## Repository Setup
-
-After installing, teach Copilot how to use Recall in your project:
-
-```
-Ctrl+Shift+P > "Recall: Setup Repository (Add Copilot Guidance Files)"
-```
-
-This creates:
-
-| File | Purpose |
-|---|---|
-| `.github/copilot-instructions.md` | Teaches Copilot the search, index, read, save workflow |
-| `.github/agents/recall.agent.md` | Dedicated memory-first agent mode |
-| `.github/instructions/recall-aware.instructions.md` | Auto-triggers on any source file |
-| `.github/prompts/recall-seed.prompt.md` | One-time prompt to populate baseline memory |
-| `.github/prompts/recall-audit.prompt.md` | Monthly maintenance prompt |
-
-
-### Getting Better Results from Recall
-
-Copilot calls `recall_search` automatically in most cases, but you can improve results by explicitly mentioning it in your prompt:
-
-```
-@recall_search auth architecture
-```
-
-This is especially useful when:
-- You're entering an unfamiliar part of the codebase and want to see what's already known
-- Copilot didn't search memory on its own before diving into code
-- A previous search returned nothing and you want to retry with broader terms
-
-**Tip:** Start broad (module name + "architecture" or "dataflow"), then narrow down to specific symptoms. Memory stores what was learned in past sessions, so searching by module name surfaces more relevant context than searching by the exact symptom you're investigating.
-
-### Seeding Memory (Cold Start)
-
-When the database is empty, you can bootstrap it with the seed prompt file:
-
-1. Run `Recall: Setup Repository` from the Command Palette
-2. In Copilot Chat, open `recall-seed.prompt.md`
-3. Specify a module (e.g., "auth, all files in src/services/auth/")
-4. Copilot walks the codebase building baseline observations
-5. Repeat for each major module
-
----
-
 ## System Requirements
 
 - **VS Code** 1.95+ (Copilot Agent mode support)
-- **Node.js** 22+ (building from source only)
 - **Copilot** Any plan with Agent mode (Business, Enterprise, or Individual)
 
 ---
 
 ## Development
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full development setup, build commands, and project structure.
+
 ```bash
-git clone https://github.com/KhouryEthan/Recall.git
-cd Recall
-npm install
-npm run compile
+git clone https://github.com/KhouryEthan/Recall.git && cd Recall && npm install
 ```
 
 Press `F5` in VS Code to launch the Extension Development Host.
-
-### Building
-
-```bash
-npm run bundle          # Bundle with esbuild
-npm run package         # Create .vsix (universal, all platforms)
-npm run lint            # ESLint
-npm test                # vitest
-```
-
-Since v1.3.0, the extension uses WebAssembly SQLite. No native build tools required.
-
-### Project Structure
-
-```
-src/
-  extension.ts          Tool / participant / command registration
-  db.ts                 WebAssembly SQLite + FTS5 + embeddings
-  embeddings.ts         Sentence-transformer pipeline
-  embeddingBlob.ts      Versioned embedding storage format
-  ftsQuery.ts           FTS5 query sanitization
-  tokenTracker.ts       Per-session token savings tracking
-  search.ts             FTS + semantic hybrid search
-  chatParticipant.ts    @recall chat participant
-  passive.ts            Build / debug / git / idle capture
-  fileIndex.ts          Document-symbol-based file indexing
-  deduplication.ts      Semantic dedup
-  sidebarProvider.ts    Dashboard webview
-  ui.ts                 Status bar, quick save, import/export
-  tools/
-    searchTool.ts       recall_search
-    saveTool.ts         recall_save
-    fileIndexTool.ts    recall_file_index
-
-test/                   vitest unit + integration tests
-models/                 Bundled ONNX sentence-transformer
-benchmarks/             Token estimation scenarios
-docs/                   Architecture, privacy, troubleshooting
-```
 
 ---
 
@@ -331,7 +275,6 @@ docs/                   Architecture, privacy, troubleshooting
 - [Security model](docs/security-model.md)
 - [Troubleshooting](docs/troubleshooting.md)
 - [Roadmap](ROADMAP.md)
-
 - [Contributing](CONTRIBUTING.md)
 
 ## License

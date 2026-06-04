@@ -2,7 +2,7 @@
   "name": "recall-persistent-memory",
   "displayName": "Recall - Persistent Developer Memory",
   "description": "Persistent, searchable developer memory that Copilot uses autonomously. Hybrid keyword + semantic search, automatic file indexing (30+ languages), passive event capture, deduplication, import/export, and a bundled offline AI model. 100% local and private.",
-  "version": "1.3.2",
+  "version": "1.4.0",
   "publisher": "ethankhoury",
   "author": {
     "name": "Ethan Khoury",
@@ -99,7 +99,7 @@
         "displayName": "Recall: Save Observation",
         "canBeReferencedInPrompt": true,
         "userDescription": "Save a new observation to persistent developer memory",
-        "modelDescription": "Save a new observation to the developer's persistent memory so it can be recalled in future sessions. Use when: you identified a bug root cause and what fixed it; you discovered a non-obvious API contract, side effect, or ordering constraint; you mapped a cross-file data flow or dependency; you resolved an investigation that required reading more than one file; you confirmed or disproved a hypothesis about system behavior. Example: {\"content\": \"Race condition in authService.ts getAccessToken() L142: concurrent calls all reach the expired check before any refresh completes. Fix: added mutex around the refresh block.\", \"tags\": \"auth,bugfix,concurrency\"}. Returns: confirmation with the new observation ID. Saved as 'pending' until the engineer verifies. Do NOT save trivial facts the file index already captures (function names, line numbers). Do NOT save build pass/fail results or git commits — passive capture handles those automatically. Do NOT save unconfirmed guesses — search first to see if it already exists.",
+        "modelDescription": "Save an observation to persistent memory THE MOMENT you learn something durable — do not batch saves at the end. Call this tool incrementally at each milestone during an investigation: after mapping how a subsystem works; after confirming or disproving a hypothesis; after discovering a cross-file dependency or non-obvious contract; after identifying a bug root cause. A typical investigation should produce 2-5 observations, not one summary at the end. FORMAT: Use the 'kind' field to categorize and the structured content format: '[WHAT] one-line claim. [WHERE] file, function, line. [WHY] reason this matters.' EXAMPLES by kind: (architecture) {\"content\": \"[WHAT] AuthService refreshes tokens through a shared singleton; all callers await the same promise. [WHERE] src/auth/authService.ts refreshToken() L89. [WHY] Any caller that bypasses this creates a duplicate refresh race.\", \"kind\": \"architecture\", \"tags\": \"auth,architecture\"}. (gotcha) {\"content\": \"[WHAT] The payments webhook handler must be idempotent — Stripe sends duplicates. [WHERE] src/payments/webhook.ts handleEvent() L34. [WHY] Without dedup, charges double on retry.\", \"kind\": \"gotcha\", \"tags\": \"payments,gotcha\"}. (dataflow) {\"content\": \"[WHAT] User permissions flow: JWT claims → middleware → req.user → route guard. [WHERE] src/middleware/auth.ts → src/guards/role.ts. [WHY] Adding a new role requires changes in both files.\", \"kind\": \"dataflow\", \"tags\": \"auth,dataflow\"}. (bugfix) {\"content\": \"[WHAT] Race condition: concurrent getAccessToken() calls all pass expiry check before any refresh completes. [WHERE] authService.ts getAccessToken() L142. [WHY] Fix: added mutex around refresh block.\", \"kind\": \"bugfix\", \"tags\": \"auth,bugfix,concurrency\"}. Returns: confirmation with observation ID. Saved as 'pending' until the engineer verifies. Do NOT save: trivial facts the file index already captures; build/git results (passive capture handles those); unconfirmed guesses; vague summaries like 'fixed auth bug'.",
         "icon": "$(save)",
         "tags": [
           "memory",
@@ -110,11 +110,16 @@
           "properties": {
             "content": {
               "type": "string",
-              "description": "The observation text. Be specific: include file name, function name, line number, and the 'why'. Example: 'Race condition in authService.ts getAccessToken() L142: concurrent calls all pass the expiry check before any refresh completes. Fix: added mutex around refresh block.'"
+              "description": "Structured observation. Use format: '[WHAT] one-line claim. [WHERE] file, function, line. [WHY] reason this matters for future work.' Be specific enough that a future session can find and act on this without reading the file."
+            },
+            "kind": {
+              "type": "string",
+              "enum": ["architecture", "bugfix", "gotcha", "dataflow", "contract", "hypothesis", "decision"],
+              "description": "Category of observation. architecture = how components connect; bugfix = root cause + fix; gotcha = non-obvious trap; dataflow = how data moves across files; contract = API/interface constraint; hypothesis = confirmed or disproved theory; decision = design choice and rationale."
             },
             "tags": {
               "type": "string",
-              "description": "Comma-separated tags: module name + category. Example: 'auth,bugfix,concurrency'. Categories: bugfix, architecture, gotcha, dataflow, performance, config."
+              "description": "Comma-separated tags: module name + category. Example: 'auth,bugfix,concurrency'. Categories: bugfix, architecture, gotcha, dataflow, performance, config, concurrency."
             }
           },
           "required": [
@@ -148,6 +153,50 @@
           },
           "required": [
             "query"
+          ]
+        }
+      },
+      {
+        "name": "recall_ask",
+        "toolReferenceName": "recall_ask",
+        "displayName": "Recall: Ask the Developer",
+        "canBeReferencedInPrompt": true,
+        "userDescription": "Ask the developer a clarifying question with selectable options instead of guessing",
+        "modelDescription": "Ask the developer a clarifying question and get an immediate, authoritative answer instead of guessing about the codebase. Use this the MOMENT you are uncertain about intent, scope, an architectural decision, a convention, a requirement, or which of several valid approaches to take — BEFORE you start investigating or assuming. This prevents wasted tokens spent reading files to infer something the developer can confirm in one click. Provide 2-5 concrete, mutually-exclusive options whenever possible; an 'Other (type a custom answer)' choice is added automatically so the developer can type a free-form answer. The returned answer is GROUND TRUTH — do not re-question it; proceed immediately. Set reusable=true when the answer is durable knowledge that will matter in future sessions (architectural intent, a convention, a design decision, a non-obvious requirement) so it is saved as a verified memory; set reusable=false for one-off, task-local answers (e.g. 'which file should I edit right now'). If the developer dismisses the prompt, you will be told to proceed with your best judgment. Do NOT use this to ask trivial questions you can answer yourself by searching memory (recall_search) or the file index (recall_file_index) first. Example: {\"question\": \"Should the new cache be in-memory or persisted to disk?\", \"options\": [\"In-memory (lost on reload)\", \"Persisted to disk\"], \"reusable\": true, \"tags\": \"cache,architecture\"}.",
+        "icon": "$(question)",
+        "tags": [
+          "memory",
+          "recall"
+        ],
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "question": {
+              "type": "string",
+              "description": "The clarifying question to ask the developer. Be specific and concise. Example: 'Should the new cache be in-memory or persisted to disk?'"
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "2-5 concrete, mutually-exclusive answer choices shown as a picker. An 'Other (type a custom answer)' entry is appended automatically unless allowCustom is false. Omit to ask a free-form (text input) question."
+            },
+            "allowCustom": {
+              "type": "boolean",
+              "description": "Whether to append an 'Other (type a custom answer)' option to the picker. Default: true."
+            },
+            "reusable": {
+              "type": "boolean",
+              "description": "Set true if the answer is durable knowledge worth saving for future sessions (architectural intent, conventions, design decisions). Set false for one-off, task-local answers. Default: false."
+            },
+            "tags": {
+              "type": "string",
+              "description": "Comma-separated tags used only when reusable=true. Example: 'cache,architecture'."
+            }
+          },
+          "required": [
+            "question"
           ]
         }
       }
@@ -310,7 +359,7 @@
     "test": "vitest run",
     "benchmark:estimate": "node scripts/estimate-tokens.mjs benchmarks/scenarios/resume-debugging.json",
     "package": "npx @vscode/vsce package",
-    "install-ext": "code --install-extension recall-1.3.2.vsix --force"
+    "install-ext": "code --install-extension recall-persistent-memory-1.4.0.vsix --force"
   },
   "dependencies": {
     "@xenova/transformers": "^2.17.2",

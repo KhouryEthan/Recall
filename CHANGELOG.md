@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.4.0] - 2026-06-03
+
+### Added
+
+- **`recall_ask` tool.** Copilot can now ask the developer clarifying questions mid-investigation instead of guessing. Pops a native QuickPick with 2-5 options plus a custom-answer entry. If the answer is reusable, it is saved as a verified observation automatically.
+- **`kind` field on `recall_save`.** Observations can now specify a category (`architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`, `hypothesis`, `decision`). Auto-prefixes content with `[KIND]` and auto-adds the kind to tags for consistent formatting.
+- **Cursor IDE support.** Setup Repository now auto-detects Cursor and creates `.cursor/rules/recall.mdc` (always-apply rule) plus seed and audit prompt files under `.cursor/prompts/`. No second command needed.
+- **Version update notification.** After an extension update, a notification prompts the user to re-run "Recall: Setup Repository" to refresh guidance files.
+- **"Update to latest" option in Setup Repository.** Existing users can now update all Recall-managed instruction files to the latest version without deleting and recreating them.
+
+### Changed
+
+- **`recall_save` instructions completely rewritten.** Guidance now says "save at each milestone as you discover it" (2-5 per investigation) instead of "save after completing work." Multiple non-bugfix examples (architecture, gotcha, dataflow). Structured `[WHAT] [WHERE] [WHY]` format.
+- **README restructured.** Leads with Setup and "Being Effective with Recall" instead of Token Savings. Dev/contributor content moved to CONTRIBUTING.md.
+- **All instruction files updated** with `recall_ask` guidance ("when unsure, ask — do not assume").
+
 ## [1.3.2] - 2026-05-30
 
 ### Changed
