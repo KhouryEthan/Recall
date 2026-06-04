@@ -74,48 +74,62 @@ recall_ask({
 Asking one question is far cheaper than spinning on an assumption, reading files
 to confirm it, and double-backing when the assumption turns out wrong.
 
-### 3. Save at each milestone → call `recall_save` incrementally
+### 3. ALWAYS save at each milestone → call `recall_save` incrementally
 
-Do NOT batch all observations into one save at the end. Save the moment you
-learn something durable — a typical investigation should produce 2-5 observations.
+NEVER batch all observations into one save at the end. ALWAYS save the moment you
+learn something durable. A typical investigation MUST produce 2-5 observations.
+
+**CRITICAL RULES:**
+
+1. **One claim per observation. ALWAYS.** If your `[WHAT]` is more than one sentence,
+   you MUST split it into separate observations. Multi-sentence observations dilute
+   the embedding vector and become unfindable by semantic search.
+
+2. **ALWAYS split architecture from bugfix.** If you discover how a system works AND
+   find a bug in it, that is TWO observations (one architecture, one bugfix), not one.
+
+3. **ALWAYS save DURING the investigation, not after.** The moment you understand how
+   a subsystem works — BEFORE finding the bug — save the architecture observation
+   immediately. Do not wait.
 
 **When to save (milestones):**
-- After mapping how a subsystem works (architecture)
-- After confirming or disproving a hypothesis
-- After discovering a cross-file dependency or data flow
-- After identifying a non-obvious contract or side effect
-- After finding a bug root cause and determining the fix
+- IMMEDIATELY after mapping how a subsystem works (architecture)
+- IMMEDIATELY after confirming or disproving a hypothesis
+- IMMEDIATELY after discovering a cross-file dependency or data flow
+- IMMEDIATELY after identifying a non-obvious contract or side effect
+- IMMEDIATELY after finding a bug root cause and determining the fix
 - After a user answers a `recall_ask` question (auto-handled if reusable=true)
 
-**Format:** Use the `kind` field and structured content:
+**Format:** Use the `kind` field. `[WHAT]` MUST be a single sentence.
 
 ```
+// Save #1: architecture fact (saved DURING investigation, before finding bug)
 recall_save({
-  "content": "[WHAT] AuthService refreshes through a shared singleton; all callers await the same promise. [WHERE] src/auth/authService.ts refreshToken() L89. [WHY] Bypassing this creates duplicate refresh races.",
+  "content": "[WHAT] output_data[] is indexed by MMC model ID, not by loop counter — VIS slot and MMC ID are independent index spaces. [WHERE] mmc_dis.cpp L230-L310. [WHY] Any code reading output_data by loop index reads the wrong entity.",
   "kind": "architecture",
-  "tags": "auth,architecture"
+  "tags": "vis,mmc,architecture"
+})
+
+// Save #2: the bugfix (saved AFTER confirming root cause)
+recall_save({
+  "content": "[WHAT] entity_type misclassification: LINK_TRAINER classified as TCAS because output_data indexed by VIS slot instead of MMC model ID. [WHERE] vis_inst.cpp mmc_model_callback() L399-L452. [WHY] Fix: replace output_data[i] with output_data[id] in model_is_new block.",
+  "kind": "bugfix",
+  "tags": "vis,mmc,bugfix"
+})
+```
+
+**WRONG (NEVER do this):**
+```
+// BAD: multiple sentences in [WHAT], mixes architecture + bugfix + example in one
+recall_save({
+  "content": "[WHAT] vis_inst.cpp mmc_model_callback indexes output_data[i] using VIS slot instead of MMC model ID. These indices are independent — entity with id=5 may land in slot 0. [WHERE] ... [WHY] ...",
+  "kind": "bugfix",
+  "tags": "vis,mmc,bugfix"
 })
 ```
 
 **Kind categories:** `architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`,
 `hypothesis`, `decision`
-
-**More examples:**
-```
-recall_save({
-  "content": "[WHAT] Webhook handler must be idempotent — Stripe sends duplicates. [WHERE] src/payments/webhook.ts handleEvent() L34. [WHY] Without dedup, charges double on retry.",
-  "kind": "gotcha",
-  "tags": "payments,gotcha"
-})
-```
-
-```
-recall_save({
-  "content": "[WHAT] User permissions flow: JWT claims → middleware → req.user → route guard. [WHERE] src/middleware/auth.ts → src/guards/role.ts. [WHY] Adding a new role requires changes in both files.",
-  "kind": "dataflow",
-  "tags": "auth,dataflow"
-})
-```
 
 **Do NOT save:** obvious facts the file index already has, build results, git
 commits, unconfirmed guesses, or vague text like "fixed auth bug."

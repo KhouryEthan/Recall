@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1] - 2026-06-03
+
+### Changed
+
+- **Observation quality enforcement.** All instruction files now use ALWAYS/NEVER terminology to enforce three critical save rules: (1) one claim per observation — multi-sentence `[WHAT]` must be split; (2) architecture and bugfix must always be separate observations; (3) save during investigation, not after. Includes correct/incorrect examples showing the difference between a searchable observation and a diluted one.
+- **`recall_save` modelDescription strengthened.** Now explicitly states that multi-sentence observations "dilute the semantic embedding and become unfindable by search."
+
 ## [1.4.0] - 2026-06-03
 
 ### Added

@@ -40,10 +40,12 @@ redundant investigation and to record what you learn for future sessions.
 
 4. **Do the work** — analyze, fix, explain, refactor.
 
-5. **Save at each milestone — not once at the end.** Call `recall_save`
-   incrementally the moment you learn something durable. A typical investigation
-   should produce 2-5 observations. Use the `kind` field and structured format:
-   `recall_save({ "content": "[WHAT] claim. [WHERE] file, func, line. [WHY] matters.", "kind": "architecture", "tags": "auth" })`
+5. **ALWAYS save at each milestone — NEVER once at the end.** Call `recall_save`
+   incrementally. A typical investigation MUST produce 2-5 observations.
+   - **One claim per observation.** If `[WHAT]` is more than one sentence, split it.
+   - **Split architecture from bugfix.** Understanding how it works + the bug = 2 saves.
+   - **Save DURING the work**, not after. Save architecture before finding the bug.
+   `recall_save({ "content": "[WHAT] single sentence. [WHERE] file, func, line. [WHY] matters.", "kind": "architecture", "tags": "module,architecture" })`
    Kinds: `architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`, `hypothesis`, `decision`.
 
 ## What not to do
