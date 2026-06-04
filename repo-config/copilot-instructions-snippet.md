@@ -1,6 +1,7 @@
 ## Recall Memory Tools
 
-You have access to three Recall tools: `recall_search`, `recall_save`, and `recall_file_index`.
+You have access to four Recall tools: `recall_search`, `recall_save`, `recall_file_index`,
+and `recall_ask`.
 These apply to ALL source files regardless of language (C/C++, Python, JS/TS, Rust, Go, etc.).
 
 ### When to Use File Index (recall_file_index)
@@ -52,30 +53,66 @@ Run at least 2-3 different queries before proceeding without recall context.
 
 Do NOT use this for looking up file structure or line numbers — use `recall_file_index` for that.
 
+### When to Ask (recall_ask)
+
+- Call `recall_ask` the MOMENT you are unsure about intent, scope, a convention,
+  a requirement, or which of several valid approaches to take — BEFORE guessing
+  or reading files to infer the answer
+- Provide 2-5 concrete, mutually-exclusive options; a custom-answer entry is added
+  automatically so the developer can type their own answer
+- The returned answer is ground truth — proceed immediately, do not re-question it
+- Set `reusable: true` for durable decisions (architecture, conventions, design
+  intent) so the answer is saved as verified memory; `false` for one-off answers
+- If the developer dismisses the prompt, proceed with your best judgment and state
+  the assumption you are making
+- Do NOT ask trivial things you can answer yourself by searching memory or the file
+  index first
+
+Asking one question is far cheaper than spinning on an assumption, reading files to
+confirm it, and double-backing when it turns out wrong.
+
 ### When to Save (recall_save)
 
-SAVE when you discover:
-- A bug root cause (what caused it and why)
-- A successful fix (what was changed and what it solved)
-- An architectural insight (how components connect, data flow, timing dependencies)
-- A non-obvious gotcha (e.g. "builds pass but this is a behavioral bug, not a build error")
-- Cross-file data flow or dependencies that took multiple reads to understand
-- A confirmed or disproved hypothesis
+**Save incrementally at each milestone — do NOT batch into one save at the end.**
+A typical investigation should produce 2-5 observations. Save the moment you learn
+something durable:
+
+- After mapping how a subsystem works (architecture)
+- After confirming or disproving a hypothesis
+- After discovering a cross-file dependency or data flow
+- After finding a non-obvious contract, side effect, or ordering constraint
+- After identifying a bug root cause and the fix
+- After a `recall_ask` answer is marked reusable (auto-handled)
+
+**Format:** Use the `kind` field and structured content:
+
+```
+recall_save({
+  "content": "[WHAT] one-line claim. [WHERE] file, function, line. [WHY] reason this matters.",
+  "kind": "architecture",
+  "tags": "auth,architecture"
+})
+```
+
+**Kind categories:** `architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`,
+`hypothesis`, `decision`
+
+**Examples:**
+- `"kind": "architecture"` — how components connect, singleton patterns, shared state
+- `"kind": "gotcha"` — non-obvious traps (idempotency, ordering, silent failures)
+- `"kind": "dataflow"` — how data flows across files (A → B → C)
+- `"kind": "bugfix"` — root cause + what fixed it
+- `"kind": "decision"` — design choice and rationale
 
 DO NOT SAVE:
-- Obvious code facts that the file index already captures (function names, line numbers)
+- Obvious facts the file index already captures (function names, line numbers)
 - Speculative guesses you have not confirmed
-- Build pass/fail results (passive capture handles this automatically)
-- Git commit info (passive capture handles this automatically)
-- Observations that duplicate what is already in memory — search first
-- Vague text like "fixed auth bug" — name the file, function, line, and WHY
+- Build/git results (passive capture handles those)
+- Vague text like "fixed auth bug" — name file, function, line, and WHY
 
-**Quality:** Every observation should name the file, function, and line number.
-Explain the *why*, not just the *what*. Future sessions will only find this if
-it contains the right keywords and meaning.
-
-**Tags:** Always include tags when saving. Use subsystem name + category.
-Categories: `bugfix`, `architecture`, `gotcha`, `dataflow`, `performance`, `config`, `concurrency`
+**Tags:** Always include tags. Use module name + kind category.
+Categories: `bugfix`, `architecture`, `gotcha`, `dataflow`, `performance`,
+`config`, `concurrency`, `contract`, `decision`
 
 ### Memory Trust
 

@@ -38,12 +38,34 @@ Thank you for your interest in contributing to Recall! This document explains ho
 
 ## Project Structure
 
-- `src/` — TypeScript source code
-- `src/tools/` — Language Model Tool implementations (search, save, file index)
-- `src/extension.ts` — Entry point
-- `repo-config/` — Template files copied into user repositories by `Recall: Setup Repository`
-- `models/` — Bundled ONNX sentence-transformer model
-- `media/` — Icons and assets
+```
+src/
+  extension.ts          Tool / participant / command registration
+  db.ts                 WebAssembly SQLite + FTS5 + embeddings
+  embeddings.ts         Sentence-transformer pipeline
+  embeddingBlob.ts      Versioned embedding storage format
+  ftsQuery.ts           FTS5 query sanitization
+  tokenTracker.ts       Per-session token savings tracking
+  search.ts             FTS + semantic hybrid search
+  chatParticipant.ts    @recall chat participant
+  passive.ts            Build / debug / git / idle capture
+  fileIndex.ts          Document-symbol-based file indexing
+  deduplication.ts      Semantic dedup
+  sidebarProvider.ts    Dashboard webview
+  ui.ts                 Status bar, quick save, import/export
+  setupRepository.ts    Repo setup + instruction update logic
+  tools/
+    searchTool.ts       recall_search
+    saveTool.ts         recall_save
+    fileIndexTool.ts    recall_file_index
+    askTool.ts          recall_ask
+
+test/                   vitest unit + integration tests
+models/                 Bundled ONNX sentence-transformer
+repo-config/            Template files copied by "Recall: Setup Repository"
+media/                  Icons and assets
+docs/                   Architecture, privacy, troubleshooting
+```
 
 ## Building
 

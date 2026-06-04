@@ -1,0 +1,83 @@
+---
+description: Recall memory workflow — search before reading, ask when unsure, save at each milestone
+alwaysApply: true
+---
+
+## Recall Memory Tools
+
+You have access to four Recall tools: `recall_search`, `recall_save`, `recall_file_index`, and `recall_ask`.
+These apply to ALL source files regardless of language (C/C++, Python, JS/TS, Rust, Go, etc.).
+
+### When to Use File Index (recall_file_index)
+
+- ALWAYS check the file index before calling `read_file` on any source file
+- If the index has the file, read ONLY the specific function(s) you need using the line numbers from the index
+- If the file is not indexed, read it normally — it will be indexed on next save
+- Never read a full file when the index already gives you a function listing
+- Do NOT use this for searching bug fixes or prior knowledge — use `recall_search` for that
+
+### When to Search (recall_search)
+
+- ALWAYS search FIRST when the user asks about a bug, problem, subsystem, or past decision — before reading any files
+- ALWAYS search before reading a source file larger than 500 lines
+- ALWAYS search before editing or refactoring any function
+
+**Two-tier query strategy.** Memory stores what was *learned*, not what you are *guessing*.
+
+- **Tier 1 — context first** (run when entering a new subsystem):
+  Use only the module name + a broad category word.
+  Examples: `"auth architecture"`, `"renderer dataflow"`, `"payments gotchas"`
+
+- **Tier 2 — symptom next** (run after Tier 1 context is established):
+  Use function name + module name + symptom keywords.
+  Examples: `"getAccessToken refresh race condition"`, `"render_frame flicker vsync"`
+
+BAD: `"page not loading after login redirect"` (symptom-only)
+GOOD: `"auth architecture"` then `"auth refreshToken redirect loop"`
+
+**Retry on misses.** If search returns 0 results, retry at least 2-3 times with broader queries before concluding no prior knowledge exists. Do NOT give up after one miss.
+
+**Reading results:**
+- `✓ verified` = engineer-confirmed fact. Trust it and skip redundant file reads.
+- `⏳ pending` = AI-captured, unverified. Treat as hypothesis — verify before acting.
+- `[from: ProjectX]` = cross-project result. Check applicability before using.
+
+### When to Ask (recall_ask)
+
+- Call `recall_ask` the MOMENT you are unsure about intent, scope, a convention, or which approach to take — BEFORE guessing or reading files to infer the answer
+- Provide 2-5 concrete options; a custom-answer entry is added automatically
+- The returned answer is ground truth — proceed immediately, do not re-question it
+- Set `reusable: true` for durable decisions so the answer is saved as verified memory
+- If the developer dismisses the prompt, proceed with your best judgment and state the assumption
+
+Asking one question is far cheaper than spinning on an assumption and double-backing when it's wrong.
+
+### When to Save (recall_save)
+
+**Save incrementally at each milestone — do NOT batch into one save at the end.**
+A typical investigation should produce 2-5 observations. Save the moment you learn something durable:
+
+- After mapping how a subsystem works (architecture)
+- After confirming or disproving a hypothesis
+- After discovering a cross-file dependency or data flow
+- After finding a non-obvious contract, side effect, or ordering constraint
+- After identifying a bug root cause and the fix
+
+**Format:** Use the `kind` field and structured content:
+
+```
+recall_save({
+  "content": "[WHAT] one-line claim. [WHERE] file, function, line. [WHY] reason this matters.",
+  "kind": "architecture",
+  "tags": "auth,architecture"
+})
+```
+
+**Kind categories:** `architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`, `hypothesis`, `decision`
+
+DO NOT SAVE: trivial facts the file index captures, build/git results (passive capture handles those), unconfirmed guesses, or vague text like "fixed auth bug."
+
+### Memory Trust
+
+- `✓ verified` = trusted fact — act on it without re-reading code
+- `⏳ pending` = unconfirmed — verify before acting; do NOT treat as fact

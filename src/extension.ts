@@ -3,6 +3,7 @@ import { RecallDatabase } from './db';
 import { RecallSearchTool } from './tools/searchTool';
 import { RecallSaveTool } from './tools/saveTool';
 import { RecallFileIndexTool } from './tools/fileIndexTool';
+import { RecallAskTool } from './tools/askTool';
 import { RecallChatParticipant } from './chatParticipant';
 import { PassiveCapture } from './passive';
 import { FileIndexBuilder } from './fileIndex';
@@ -49,6 +50,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const searchTool = new RecallSearchTool(db, tokenTracker);
     const saveTool = new RecallSaveTool(db);
     const fileIndexTool = new RecallFileIndexTool(db, tokenTracker);
+    const askTool = new RecallAskTool(db);
 
     // Log available tools before registration for diagnostics
     console.log(`[Recall] Available LM tools before registration: ${vscode.lm.tools.map(t => t.name).join(', ') || '(none)'}`);
@@ -57,6 +59,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ['recall_search', searchTool],
         ['recall_save', saveTool],
         ['recall_file_index', fileIndexTool],
+        ['recall_ask', askTool],
     ];
 
     for (const [name, tool] of toolRegistrations) {
@@ -213,6 +216,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (stats.totalObservations === 0 && stats.totalFilesIndexed === 0) {
         showWelcomeMessage();
     }
+
+    // ─── Version update notification ──────────────────────────────────────
+    checkForVersionUpdate(context);
+}
+
+function checkForVersionUpdate(context: vscode.ExtensionContext): void {
+    const currentVersion = context.extension.packageJSON.version as string;
+    const lastVersion = context.globalState.get<string>('recall.lastKnownVersion');
+
+    if (lastVersion && lastVersion !== currentVersion) {
+        vscode.window.showInformationMessage(
+            `Recall updated to v${currentVersion}. Run "Recall: Setup Repository" to refresh your project's guidance files with the latest improvements.`,
+            'Update Now',
+            'Later'
+        ).then(action => {
+            if (action === 'Update Now') {
+                vscode.commands.executeCommand('recall.setupRepository');
+            }
+        });
+    }
+
+    context.globalState.update('recall.lastKnownVersion', currentVersion);
 }
 
 function showWelcomeMessage(): void {

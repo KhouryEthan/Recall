@@ -49,20 +49,76 @@ Use a two-tier query strategy.
 Always run a Tier 1 query before a Tier 2 query the first time you touch a
 subsystem in a session.
 
-### 3. After completing non-trivial work → call `recall_save`
+### 2b. When unsure → call `recall_ask` instead of assuming
+
+If you are uncertain about intent, scope, a convention, or which of several valid
+approaches to take, do NOT guess and do NOT read extra files to infer the answer.
+Ask the developer directly:
 
 ```
-recall_save({
-  "content": "Race condition in authService.ts getAccessToken() L142: concurrent calls all pass the expiry check before any refresh completes. Fix: added mutex around refresh block.",
-  "tags": "auth,bugfix,concurrency"
+recall_ask({
+  "question": "Should retries use exponential backoff or a fixed delay?",
+  "options": ["Exponential backoff", "Fixed delay"],
+  "reusable": true,
+  "tags": "retry,architecture"
 })
 ```
 
-Save after: fixing a bug, discovering a non-obvious contract, mapping cross-file
-data flow, confirming or disproving a hypothesis.
+- Provide 2-5 concrete options. A custom-answer entry is added automatically.
+- The returned answer is ground truth — proceed immediately, do not re-question it.
+- Set `reusable: true` for durable decisions (architecture, conventions, intent)
+  so they are saved as verified memory; `false` for one-off, task-local answers.
+- If the developer dismisses the prompt, proceed with your best judgment and
+  state the assumption you are making.
 
-Do not save: obvious facts the file index already has, build results, git
-commits, unconfirmed guesses.
+Asking one question is far cheaper than spinning on an assumption, reading files
+to confirm it, and double-backing when the assumption turns out wrong.
+
+### 3. Save at each milestone → call `recall_save` incrementally
+
+Do NOT batch all observations into one save at the end. Save the moment you
+learn something durable — a typical investigation should produce 2-5 observations.
+
+**When to save (milestones):**
+- After mapping how a subsystem works (architecture)
+- After confirming or disproving a hypothesis
+- After discovering a cross-file dependency or data flow
+- After identifying a non-obvious contract or side effect
+- After finding a bug root cause and determining the fix
+- After a user answers a `recall_ask` question (auto-handled if reusable=true)
+
+**Format:** Use the `kind` field and structured content:
+
+```
+recall_save({
+  "content": "[WHAT] AuthService refreshes through a shared singleton; all callers await the same promise. [WHERE] src/auth/authService.ts refreshToken() L89. [WHY] Bypassing this creates duplicate refresh races.",
+  "kind": "architecture",
+  "tags": "auth,architecture"
+})
+```
+
+**Kind categories:** `architecture`, `bugfix`, `gotcha`, `dataflow`, `contract`,
+`hypothesis`, `decision`
+
+**More examples:**
+```
+recall_save({
+  "content": "[WHAT] Webhook handler must be idempotent — Stripe sends duplicates. [WHERE] src/payments/webhook.ts handleEvent() L34. [WHY] Without dedup, charges double on retry.",
+  "kind": "gotcha",
+  "tags": "payments,gotcha"
+})
+```
+
+```
+recall_save({
+  "content": "[WHAT] User permissions flow: JWT claims → middleware → req.user → route guard. [WHERE] src/middleware/auth.ts → src/guards/role.ts. [WHY] Adding a new role requires changes in both files.",
+  "kind": "dataflow",
+  "tags": "auth,dataflow"
+})
+```
+
+**Do NOT save:** obvious facts the file index already has, build results, git
+commits, unconfirmed guesses, or vague text like "fixed auth bug."
 
 ## Retry rules — never conclude "no prior knowledge" from a single miss
 

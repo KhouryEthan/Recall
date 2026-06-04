@@ -1,8 +1,15 @@
 import * as vscode from 'vscode';
 import { RecallDatabase } from '../db';
 import { embed, cosineSimilarity, isReady } from '../embeddings';
+import { formatObservation } from '../saveFormatting';
 
-export class RecallSaveTool implements vscode.LanguageModelTool<{ content: string; tags?: string }> {
+interface SaveInput {
+    content: string;
+    kind?: string;
+    tags?: string;
+}
+
+export class RecallSaveTool implements vscode.LanguageModelTool<SaveInput> {
 
     private statusBarItem: vscode.StatusBarItem | undefined;
 
@@ -13,15 +20,17 @@ export class RecallSaveTool implements vscode.LanguageModelTool<{ content: strin
     }
 
     async invoke(
-        options: vscode.LanguageModelToolInvocationOptions<{ content: string; tags?: string }>,
+        options: vscode.LanguageModelToolInvocationOptions<SaveInput>,
         _token: vscode.CancellationToken
     ): Promise<vscode.LanguageModelToolResult> {
 
-        const { content, tags } = options.input;
-        const tagStr = tags || '';
+        const { content, kind, tags } = options.input;
+        const formatted = formatObservation(content, kind, tags);
+        const finalContent = formatted.content;
+        const tagStr = formatted.tags;
 
         // Copilot-sourced observations are always saved as pending
-        const id = this.db.insertObservation(content, tagStr, 'copilot', 'pending');
+        const id = this.db.insertObservation(finalContent, tagStr, 'copilot', 'pending');
 
         let relatedText = '';
         if (isReady()) {
@@ -46,7 +55,7 @@ export class RecallSaveTool implements vscode.LanguageModelTool<{ content: strin
         }
 
         this.updateStatusBar();
-        this.showVerificationNotification(id, content);
+        this.showVerificationNotification(id, finalContent);
 
         return new vscode.LanguageModelToolResult([
             new vscode.LanguageModelTextPart(
@@ -57,7 +66,7 @@ export class RecallSaveTool implements vscode.LanguageModelTool<{ content: strin
     }
 
     async prepareInvocation(
-        options: vscode.LanguageModelToolInvocationPrepareOptions<{ content: string; tags?: string }>,
+        options: vscode.LanguageModelToolInvocationPrepareOptions<SaveInput>,
         _token: vscode.CancellationToken
     ): Promise<vscode.PreparedToolInvocation> {
         const preview = options.input.content.substring(0, 80);
